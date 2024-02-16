@@ -39,7 +39,7 @@ def f_B_operator_and_current_scale(cpst: CurrentPotentialSolve, normalize=True):
     f_B_x_operator = np.block([
         [ATA_scaled, -ATb_scaled[:, None]],
         [-ATb_scaled[None, :], bTb_scaled[None, None]]
-    ])
+    ])/2
     if normalize:
         f_B_scale = avg_order_of_magnitude(f_B_x_operator)
         f_B_x_operator /= f_B_scale
