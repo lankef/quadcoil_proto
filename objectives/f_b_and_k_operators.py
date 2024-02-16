@@ -112,15 +112,10 @@ def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
         [ATA_K_scaled, ATb_K_scaled[:, :, :, None]],
         [ATb_K_scaled[:, :, None, :], bTb_K_scaled[:, :, None, None]]
     ])#.reshape((-1, n_dof+1, n_dof+1))
-    # TODO: Jacobian not included here
-    # AK_l2_operator_trace = np.sum(AK_l2_operator, axis=(0,1))
     
     if normalize:
         AK_l2_scale = avg_order_of_magnitude(AK_l2_operator)
         AK_l2_operator /= AK_l2_scale
-        # AK_l2_trace_scale = avg_order_of_magnitude(AK_l2_operator_trace)
-        # AK_l2_operator_trace /= AK_l2_trace_scale
     return(
         AK_l2_operator, AK_l2_scale,
-        # AK_l2_operator_trace, AK_l2_trace_scale
     )
