@@ -120,6 +120,6 @@ def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
         AK_l2_trace_scale = avg_order_of_magnitude(AK_l2_operator_trace)
         AK_l2_operator_trace /= AK_l2_trace_scale
     return(
-        AK_l2_operator, AK_scale,
-        AK_l2_operator_trace, AK_trace_scale
+        AK_l2_operator, AK_l2_scale,
+        AK_l2_operator_trace, AK_l2_trace_scale
     )
