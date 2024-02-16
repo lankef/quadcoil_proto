@@ -112,7 +112,7 @@ def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
         [ATA_K_scaled, ATb_K_scaled[:, :, :, None]],
         [ATb_K_scaled[:, :, None, :], bTb_K_scaled[:, :, None, None]]
     ])#.reshape((-1, n_dof+1, n_dof+1))
-    
+    AK_l2_operator = AK_l2_operator[:AK_l2_operator.shape[0]//cpst.winding_surface.nfp, :, :]
     if normalize:
         AK_l2_scale = avg_order_of_magnitude(AK_l2_operator)
         AK_l2_operator /= AK_l2_scale
