@@ -289,7 +289,7 @@ def grid_curvature_operator_cylindrical(
         cp:CurrentPotentialFourier, 
         current_scale,
         single_value_only:bool=False,
-        normalize=False
+        normalize=True
     ):
     K_dot_grad_K = grid_curvature_operator(
         cp=cp, 
@@ -304,5 +304,5 @@ def grid_curvature_operator_cylindrical(
     if normalize:
         out_scale = avg_order_of_magnitude(out)
         out /= out_scale
-    return(out)
+    return(out, out_scale)
     

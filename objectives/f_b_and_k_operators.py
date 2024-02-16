@@ -43,7 +43,7 @@ def f_B_operator_and_current_scale(cpst: CurrentPotentialSolve, normalize=True):
     if normalize:
         f_B_scale = avg_order_of_magnitude(f_B_x_operator)
         f_B_x_operator /= f_B_scale
-    return(f_B_x_operator, B_normal, current_scale)
+    return(f_B_x_operator, B_normal, current_scale, f_B_scale)
 
 def K_operator_cylindrical(cpst: CurrentPotentialSolve, current_scale, normalize=True):
     '''
@@ -90,6 +90,36 @@ def K_operator_cylindrical(cpst: CurrentPotentialSolve, current_scale, normalize
     if normalize:
         AK_scale = avg_order_of_magnitude(AK_operator_cylindrical)
         AK_operator_cylindrical /= AK_scale
-    return(AK_operator_cylindrical)
+    return(AK_operator_cylindrical, AK_scale)
 
+def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
+    AK = (-cpst.fj).reshape(
+        # Reshape to the same shape as 
+        list(cpst.winding_surface.gamma().shape)+[-1] 
+    )
+    bK = (cpst.d).reshape(
+        # Reshape to the same shape as 
+        cpst.winding_surface.gamma().shape
+    )
+    # To fill the part of ther operator representing
+    # 2nd order coefficients
+    AK_scaled = (AK/current_scale)
+    ATA_K_scaled = np.matmul(np.swapaxes(AK_scaled, -1, -2),AK_scaled)
+    ATb_K_scaled = np.sum(AK_scaled*bK[:,:,:,None], axis=-2)
+    bTb_K_scaled = np.sum(bK*bK, axis=-1)
 
+    AK_l2_operator = np.block([
+        [ATA_K_scaled, ATb_K_scaled[:, :, :, None]],
+        [ATb_K_scaled[:, :, None, :], bTb_K_scaled[:, :, None, None]]
+    ])#.reshape((-1, n_dof+1, n_dof+1))
+    AK_l2_operator_trace = np.sum(AK_l2_operator, axis=(0,1))
+    
+    if normalize:
+        AK_l2_scale = avg_order_of_magnitude(AK_l2_operator)
+        AK_l2_operator /= AK_l2_scale
+        AK_l2_trace_scale = avg_order_of_magnitude(AK_l2_operator_trace)
+        AK_l2_operator_trace /= AK_l2_trace_scale
+    return(
+        AK_l2_operator, AK_scale,
+        AK_l2_operator_trace, AK_trace_scale
+    )

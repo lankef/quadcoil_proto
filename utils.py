@@ -119,7 +119,8 @@ def run_nescoil(
         net_toroidal_current_amperes=cp.net_toroidal_current_amperes,
         stellsym=True)
     
-    cpst = CurrentPotentialSolve(cp, cpst.plasma_surface, cpst.Bnormal_plasma, cpst.B_GI)
+    cpst = CurrentPotentialSolve(cp, cpst.plasma_surface, cpst.Bnormal_plasma)
+    # cpst = CurrentPotentialSolve(cp, cpst.plasma_surface, cpst.Bnormal_plasma, cpst.B_GI)
     
     # Discard L2 regularization for testing against linear relaxation
     lambda_reg = 0
