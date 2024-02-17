@@ -1,11 +1,13 @@
 # Import packages.
 import numpy as np
 import utils
+import simsoptpp as sopp
 from utils import avg_order_of_magnitude
 # from simsopt.objectives import SquaredFlux
 # from simsopt.field.magneticfieldclasses import WindingSurfaceField
 from simsopt.field import CurrentPotentialFourier, CurrentPotentialSolve
 from simsopt.geo import SurfaceRZFourier
+
 # from simsoptpp import WindingSurfaceBn_REGCOIL
 def f_B_operator_and_current_scale(cpst: CurrentPotentialSolve, normalize=True):
     '''
@@ -92,7 +94,7 @@ def K_operator_cylindrical(cpst: CurrentPotentialSolve, current_scale, normalize
         AK_operator_cylindrical /= AK_scale
     return(AK_operator_cylindrical, AK_scale)
 
-def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
+def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True, L2_unit=False):
     AK = (-cpst.fj).reshape(
         # Reshape to the same shape as 
         list(cpst.winding_surface.gamma().shape)+[-1] 
@@ -101,6 +103,41 @@ def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
         # Reshape to the same shape as 
         cpst.winding_surface.gamma().shape
     )
+    contig = np.ascontiguousarray
+    if cpst.winding_surface.stellsym:
+        ndofs_half = cpst.current_potential.num_dofs()
+    else:
+        ndofs_half = cpst.current_potential.num_dofs() // 2
+    m = cpst.current_potential.m[:ndofs_half]
+    n = cpst.current_potential.n[:ndofs_half]
+    phi_mesh, theta_mesh = np.meshgrid(
+        cpst.winding_surface.quadpoints_phi, 
+        cpst.winding_surface.quadpoints_theta, 
+        indexing='ij'
+    )
+    zeta_coil = np.ravel(phi_mesh)
+    theta_coil = np.ravel(theta_mesh)
+    dr_dzeta = cpst.winding_surface.gammadash1().reshape(-1, 3)
+    dr_dtheta = cpst.winding_surface.gammadash2().reshape(-1, 3)
+    G = cpst.current_potential.net_poloidal_current_amperes
+    I = cpst.current_potential.net_toroidal_current_amperes
+    normal_coil = cpst.winding_surface.normal().reshape(-1, 3)
+    bK, AK = sopp.winding_surface_field_K2_matrices(
+        contig(dr_dzeta), contig(dr_dtheta), contig(normal_coil), cpst.winding_surface.stellsym,
+        contig(zeta_coil), contig(theta_coil), cpst.ndofs, contig(m), contig(n), 
+        cpst.winding_surface.nfp, G, I
+    )
+    print(AK.shape)
+    bK = bK[:bK.shape[0]//cpst.winding_surface.nfp]
+    AK = AK[:AK.shape[0]//cpst.winding_surface.nfp]
+    normN_prime = np.linalg.norm(cpst.winding_surface.normal(), axis=-1)
+    # flaten
+    normN_prime = normN_prime.flatten()
+    normN_prime = normN_prime[:normN_prime.shape[0]//cpst.winding_surface.nfp]
+    if not L2_unit:
+        AK = AK/np.sqrt(normN_prime)[:, None, None]*(np.pi * 2)
+        bK = bK/np.sqrt(normN_prime)[:, None]*(np.pi * 2)
+        
     # To fill the part of ther operator representing
     # 2nd order coefficients
     AK_scaled = (AK/current_scale)
