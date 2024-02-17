@@ -126,10 +126,6 @@ def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True, L2
     )
     bK = bK[:bK.shape[0]//cpst.winding_surface.nfp]
     AK = AK[:AK.shape[0]//cpst.winding_surface.nfp]
-    normN_prime = np.linalg.norm(cpst.winding_surface.normal(), axis=-1)
-    # flaten
-    normN_prime = normN_prime.flatten()
-    normN_prime = normN_prime[:normN_prime.shape[0]//cpst.winding_surface.nfp]
     if L2_unit:
         dzeta_coil = (
             cpst.winding_surface.quadpoints_phi[1] 
@@ -142,6 +138,10 @@ def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True, L2
         AK = AK * 2 * np.pi * np.sqrt(dzeta_coil * dtheta_coil)
         bK = bK * 2 * np.pi * np.sqrt(dzeta_coil * dtheta_coil)
     else:
+        normN_prime = np.linalg.norm(cpst.winding_surface.normal(), axis=-1)
+        # flaten
+        normN_prime = normN_prime.flatten()
+        normN_prime = normN_prime[:normN_prime.shape[0]//cpst.winding_surface.nfp]
         AK = AK/np.sqrt(normN_prime)[:, None, None]*(np.pi * 2)
         bK = bK/np.sqrt(normN_prime)[:, None]*(np.pi * 2)
     # To fill the part of ther operator representing
