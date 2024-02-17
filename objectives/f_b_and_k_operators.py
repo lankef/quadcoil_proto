@@ -1,13 +1,11 @@
 # Import packages.
 import numpy as np
 import utils
-import simsoptpp as sopp
 from utils import avg_order_of_magnitude
 # from simsopt.objectives import SquaredFlux
 # from simsopt.field.magneticfieldclasses import WindingSurfaceField
 from simsopt.field import CurrentPotentialFourier, CurrentPotentialSolve
 from simsopt.geo import SurfaceRZFourier
-
 # from simsoptpp import WindingSurfaceBn_REGCOIL
 def f_B_operator_and_current_scale(cpst: CurrentPotentialSolve, normalize=True):
     '''
@@ -93,7 +91,6 @@ def K_operator_cylindrical(cpst: CurrentPotentialSolve, current_scale, normalize
         AK_scale = avg_order_of_magnitude(AK_operator_cylindrical)
         AK_operator_cylindrical /= AK_scale
     return(AK_operator_cylindrical, AK_scale)
-
 def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True, L2_unit=False):
     AK = (-cpst.fj).reshape(
         # Reshape to the same shape as 
@@ -127,7 +124,6 @@ def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True, L2
         contig(zeta_coil), contig(theta_coil), cpst.ndofs, contig(m), contig(n), 
         cpst.winding_surface.nfp, G, I
     )
-    print(AK.shape)
     bK = bK[:bK.shape[0]//cpst.winding_surface.nfp]
     AK = AK[:AK.shape[0]//cpst.winding_surface.nfp]
     normN_prime = np.linalg.norm(cpst.winding_surface.normal(), axis=-1)
@@ -137,22 +133,16 @@ def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True, L2
     if not L2_unit:
         AK = AK/np.sqrt(normN_prime)[:, None, None]*(np.pi * 2)
         bK = bK/np.sqrt(normN_prime)[:, None]*(np.pi * 2)
-        
     # To fill the part of ther operator representing
     # 2nd order coefficients
     AK_scaled = (AK/current_scale)
     ATA_K_scaled = np.matmul(np.swapaxes(AK_scaled, -1, -2),AK_scaled)
-    ATb_K_scaled = np.sum(AK_scaled*bK[:,:,:,None], axis=-2)
+    ATb_K_scaled = np.sum(AK_scaled*bK[:,:,None], axis=-2)
     bTb_K_scaled = np.sum(bK*bK, axis=-1)
-
     AK_l2_operator = np.block([
-        [ATA_K_scaled, ATb_K_scaled[:, :, :, None]],
-        [ATb_K_scaled[:, :, None, :], bTb_K_scaled[:, :, None, None]]
+        [ATA_K_scaled, -ATb_K_scaled[:, :, None]],
+        [-ATb_K_scaled[:, None, :], bTb_K_scaled[:, None, None]]
     ])#.reshape((-1, n_dof+1, n_dof+1))
-    # Keep only 1 nfp
-    AK_l2_operator = AK_l2_operator[:AK_l2_operator.shape[0]//cpst.winding_surface.nfp, :, :]
-    # Flattening
-    AK_l2_operator = AK_l2_operator.reshape([-1, AK_l2_operator.shape[-2], AK_l2_operator.shape[-1]])
     if normalize:
         AK_l2_scale = avg_order_of_magnitude(AK_l2_operator)
         AK_l2_operator /= AK_l2_scale
