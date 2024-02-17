@@ -141,7 +141,7 @@ def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True, L2
         )
         AK = AK * 2 * np.pi * np.sqrt(dzeta_coil * dtheta_coil)
         bK = bK * 2 * np.pi * np.sqrt(dzeta_coil * dtheta_coil)
-    if not L2_unit:
+    else:
         AK = AK/np.sqrt(normN_prime)[:, None, None]*(np.pi * 2)
         bK = bK/np.sqrt(normN_prime)[:, None]*(np.pi * 2)
     # To fill the part of ther operator representing
