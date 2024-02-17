@@ -6,7 +6,7 @@ from utils import avg_order_of_magnitude
 # from simsopt.field.magneticfieldclasses import WindingSurfaceField
 from simsopt.field import CurrentPotentialFourier, CurrentPotentialSolve
 from simsopt.geo import SurfaceRZFourier
-# from simsoptpp import WindingSurfaceBn_REGCOIL
+import simsoptpp as sopp
 def f_B_operator_and_current_scale(cpst: CurrentPotentialSolve, normalize=True):
     '''
     Produces a dimensionless f_B and K operator that act on X by 
