@@ -304,5 +304,7 @@ def grid_curvature_operator_cylindrical(
     if normalize:
         out_scale = avg_order_of_magnitude(out)
         out /= out_scale
+    else:
+        out_scale = 1
     return(out, out_scale)
     

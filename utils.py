@@ -4,10 +4,48 @@ import numpy as np
 # from simsopt.objectives import SquaredFlux
 # from simsopt.field.magneticfieldclasses import WindingSurfaceField
 from simsopt.field import CurrentPotentialFourier, CurrentPotentialSolve
-from simsopt.geo import SurfaceRZFourier
+from simsopt.geo import SurfaceRZFourier, SurfaceXYZTensorFourier, plot
 # from simsoptpp import WindingSurfaceBn_REGCOIL
 
 avg_order_of_magnitude = lambda x: np.exp(np.average(np.log(np.abs(x[x!=0]))))
+
+''' Winding surface '''
+def gen_winding_surface(source_surface, d_expand, mpol=2, ntor=2):
+    # Expanding plasma surface to winding surface
+    gamma_source_surface = source_surface.gamma()
+    len_phi = gamma_source_surface.shape[0]
+    len_phi_hi_res = gamma_source_surface.shape[0] * source_surface.nfp
+    len_theta = gamma_source_surface.shape[1]
+    unit_normal_source_surface = source_surface.unitnormal()
+    delta_gamma = unit_normal_source_surface * d_expand
+    winding_gamma = gamma_source_surface + delta_gamma
+    winding_surface_tensor = SurfaceXYZTensorFourier( 
+        nfp=source_surface.nfp, 
+        stellsym=source_surface.stellsym, 
+        mpol=mpol, 
+        ntor=ntor, 
+        quadpoints_phi=np.arange(len_phi)/len_phi, 
+        quadpoints_theta=np.arange(len_theta)/len_theta
+    )
+    # print('source srf')
+    # plot([source_surface])
+    winding_surface_tensor.least_squares_fit(winding_gamma)
+    winding_surface_low_res = winding_surface_tensor.to_RZFourier()
+    # Increasing phi resolution by nfp times 
+    # Because during Biot Savart, the entire
+    # winding surface is used, rather than 
+    # just one period, so there need to be more 
+    # quadrature points.
+    winding_surface_hi_res = SurfaceRZFourier(
+        nfp=winding_surface_low_res.nfp, 
+        stellsym=winding_surface_low_res.stellsym, 
+        mpol=mpol, 
+        ntor=ntor, 
+        quadpoints_phi=np.arange(len_phi_hi_res)/len_phi_hi_res, 
+        quadpoints_theta=np.arange(len_theta)/len_theta
+    )
+    winding_surface_hi_res.set_dofs(winding_surface_low_res.get_dofs())
+    return(winding_surface_hi_res)
 
 ''' Operator projection '''
 def project_field_operator_coord(

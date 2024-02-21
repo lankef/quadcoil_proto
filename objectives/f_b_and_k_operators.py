@@ -39,10 +39,12 @@ def f_B_operator_and_current_scale(cpst: CurrentPotentialSolve, normalize=True):
     f_B_x_operator = np.block([
         [ATA_scaled, -ATb_scaled[:, None]],
         [-ATb_scaled[None, :], bTb_scaled[None, None]]
-    ])/2
+    ])/2*cpst.current_potential.nfp
     if normalize:
         f_B_scale = avg_order_of_magnitude(f_B_x_operator)
         f_B_x_operator /= f_B_scale
+    else:
+        f_B_scale = 1
     return(f_B_x_operator, B_normal, current_scale, f_B_scale)
 
 def K_operator_cylindrical(cpst: CurrentPotentialSolve, current_scale, normalize=True):
@@ -157,6 +159,8 @@ def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True, L2
     if normalize:
         AK_l2_scale = avg_order_of_magnitude(AK_l2_operator)
         AK_l2_operator /= AK_l2_scale
+    else:
+        AK_l2_scale = 1
     return(
         AK_l2_operator, AK_l2_scale,
     )
