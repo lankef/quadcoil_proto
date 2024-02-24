@@ -2,6 +2,7 @@ import sys
 sys.path.insert(1,'..')
 import utils
 from utils import avg_order_of_magnitude
+from utils import sin_or_cos
 
 # Import packages.
 import numpy as np
@@ -35,9 +36,6 @@ def grid_curvature_operator(
     that evaluates K dot grad K on grid points. When free_GI is True,
     the operator has shape (n_phi, n_theta, 3(xyz), n_dof_phi+2, n_dof_phi+2) 
     '''
-    # A helper method. When mode=0, calculates sin(x).
-    # Otherwise calculates cos(x)
-    sin_or_cos = lambda x, mode: np.where(mode==1, np.sin(x), np.cos(x))
     
     # The uniform index for phi contains first sin Fourier 
     # coefficients, then optionally cos is stellsym=False.
@@ -108,7 +106,7 @@ def grid_curvature_operator(
     normN_prime_2d = np.sqrt(np.sum(normal_vec**2, axis=-1)) # |N|
     inv_normN_prime_2d = 1/normN_prime_2d # 1/|N|
     
-    # Because Phi in simsopt is defined around the unit normal, rather 
+    # Because Phi is defined around the unit normal, rather 
     # than N, we need to calculate the derivative and double derivative 
     # of (dr/dtheta)/|N| and (dr/dphi)/|N|.
     # phi (phi) derivative of the normal's length
@@ -291,6 +289,9 @@ def grid_curvature_operator_cylindrical(
         single_value_only:bool=False,
         normalize=True
     ):
+    '''
+    K dot nabla K components in R, Phi, Z. Only 1 field period.
+    '''
     K_dot_grad_K = grid_curvature_operator(
         cp=cp, 
         single_value_only=single_value_only, 

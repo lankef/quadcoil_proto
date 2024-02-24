@@ -1,8 +1,10 @@
 import cvxpy
 import utils
 import numpy as np
+from objectives.f_b_and_k_operators import K_theta
 
-def cvxpy_create_X( n_dof,):
+
+def cvxpy_create_X(n_dof,):
     # Define and solve the CVXPY problem.
     # Create a symmetric matrix variable.
     # One additional row and col each are added
@@ -26,7 +28,22 @@ def cvxpy_create_X( n_dof,):
     ]
     return(X, constraints)
 
-def cvxpy_create_L1_from_array(grid_3d_operator, X, stellsym):
+def cvxpy_no_windowpane(cp, current_scale, X):
+    K_theta_operator, current_scale, K_theta_scale = K_theta(cp, current_scale)
+    constraints = []
+    if cp.stellsym:
+        loop_size = K_theta_operator.shape[0]//2
+    else:
+        loop_size = K_theta_operator.shape[0]
+    for i in range(loop_size):
+        constraints.append(
+            cvxpy.trace(
+                K_theta_operator[i, :, :] @ X
+            )>=0
+        )
+    return(constraints, K_theta_operator, K_theta_scale)
+
+def cvxpy_create_integrated_L1_from_array(cpst, grid_3d_operator, X, stellsym):
     '''
     Constructing cvxpy constraints and variables necessary for an
     L1 norm term.
@@ -42,10 +59,15 @@ def cvxpy_create_L1_from_array(grid_3d_operator, X, stellsym):
     L1_comps_to_sum: Adding a lam*cvxpy.sum(L1_comps_to_sum) term in the 
     objective adds an L1 norm term.
     '''
+
+    normN_prime = np.linalg.norm(cpst.winding_surface.normal(), axis=-1)
+    normN_prime = normN_prime.flatten()
     if stellsym:
         loop_size = grid_3d_operator.shape[0]//2
+        jacobian_prime = normN_prime[:normN_prime.shape[0]//cpst.winding_surface.nfp//2]
     else:
         loop_size = grid_3d_operator.shape[0]
+        jacobian_prime = normN_prime[:normN_prime.shape[0]//cpst.winding_surface.nfp]
     # q is used for L1 norm.
     L1_comps_to_sum = cvxpy.Variable(loop_size*3, nonneg=True)
 
@@ -57,18 +79,18 @@ def cvxpy_create_L1_from_array(grid_3d_operator, X, stellsym):
                 continue
             constraints.append(
                 cvxpy.trace(
-                    grid_3d_operator[i, j, :, :] @ X
+                    jacobian_prime[i] * grid_3d_operator[i, j, :, :] @ X
                 )<=L1_comps_to_sum[3*i+j]
             )
             constraints.append(
                 cvxpy.trace(
-                    grid_3d_operator[i, j, :, :] @ X
+                    jacobian_prime[i] * grid_3d_operator[i, j, :, :] @ X
                 )>=-L1_comps_to_sum[3*i+j]
             )
     # The L1 norm is given by cvxpy.sum(L1_comps_to_sum)
     return(constraints, L1_comps_to_sum)
 
-def cvxpy_create_L1_from_array(grid_3d_operator, X, stellsym):    
+def cvxpy_create_Linf_from_array(grid_3d_operator, X, stellsym):
     '''
     Constructing cvxpy constraints and variables necessary for an
     L-inf norm term.

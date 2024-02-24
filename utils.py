@@ -8,6 +8,9 @@ from simsopt.geo import SurfaceRZFourier, SurfaceXYZTensorFourier, plot
 # from simsoptpp import WindingSurfaceBn_REGCOIL
 
 avg_order_of_magnitude = lambda x: np.exp(np.average(np.log(np.abs(x[x!=0]))))
+# A helper method. When mode=0, calculates sin(x).
+# Otherwise calculates cos(x)
+sin_or_cos = lambda x, mode: np.where(mode==1, np.sin(x), np.cos(x))
 
 ''' Winding surface '''
 def gen_winding_surface(source_surface, d_expand, mpol=2, ntor=2):

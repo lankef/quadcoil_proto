@@ -10,6 +10,44 @@ from matplotlib import cm, colors
 # Importing simsopt 
 from simsopt.field import CurrentPotentialFourier
 
+def plot_coil_contours(
+    cp_opt:CurrentPotentialFourier, 
+    nlevels=40, 
+    plot_sv_only=False):
+    '''
+    Plots a coil configuration on 3d surface. 
+    Parameters:
+    
+    `nlevels` - # contour levels
+    `plot_sv_only` - When True, plots Phi_sv only 
+    `plot_2d_contour` - When True, plots 2d contour also 
+    '''
+    theta1d, phi1d = cp_opt.quadpoints_theta, cp_opt.quadpoints_phi
+    theta2d, phi2d = np.meshgrid(theta1d, phi1d)
+
+    # Calculating Phi
+    G = cp_opt.net_poloidal_current_amperes
+    I = cp_opt.net_toroidal_current_amperes  
+    if plot_sv_only:
+        Phi = cp_opt.Phi()  
+    else:    
+        Phi = cp_opt.Phi() \
+            + phi2d*G \
+            + theta2d*I
+
+    # Making 2d contour plot   
+    quad_contour_set = plt.contour(
+        phi2d,
+        theta2d, 
+        Phi,
+        levels=nlevels,
+        algorithm='threaded'
+    )
+    plt.xlabel('Toroidal angle')
+    plt.ylabel('Poloidal angle')
+    return(quad_contour_set)
+
+
 def plot_coil_Phi_IG(
     cp_opt:CurrentPotentialFourier, 
     nlevels=40, 
