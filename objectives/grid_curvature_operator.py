@@ -249,7 +249,7 @@ def grid_curvature_operator(
     # normal_matrix = (K_dot_grad_K_operator_flat.T@K_dot_grad_K_operator_flat).reshape(
     #     (op_shape[4], op_shape[3], op_shape[3], op_shape[4])
     # )
-    return(K_dot_grad_K_operator)
+    return(K_dot_grad_K_operator/current_scale**2)
 
 def grid_curvature_operator_pol_n_binorm(
     cp:CurrentPotentialFourier, 
