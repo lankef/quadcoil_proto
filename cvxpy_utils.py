@@ -35,12 +35,23 @@ def cvxpy_no_windowpane(cp, current_scale, X):
         loop_size = K_theta_operator.shape[0]//2
     else:
         loop_size = K_theta_operator.shape[0]
-    for i in range(loop_size):
-        constraints.append(
-            cvxpy.trace(
-                K_theta_operator[i, :, :] @ X
-            )>=0
-        )
+    # This if statement distinguishes the sign of 
+    # tot. pol. current. The total current should never
+    # change sign.
+    if cp.net_poloidal_current_amperes > 0:
+        for i in range(loop_size):
+            constraints.append(
+                cvxpy.trace(
+                    K_theta_operator[i, :, :] @ X
+                )>=0
+            )
+    else:
+        for i in range(loop_size):
+            constraints.append(
+                cvxpy.trace(
+                    K_theta_operator[i, :, :] @ X
+                )<=0
+            )
     return(constraints, K_theta_operator, K_theta_scale)
 
 def cvxpy_create_integrated_L1_from_array(cpst, grid_3d_operator, X, stellsym):
