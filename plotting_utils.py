@@ -47,6 +47,47 @@ def plot_coil_contours(
     plt.ylabel('Poloidal angle')
     return(quad_contour_set)
 
+def plot_comps(cp, comps, clim_lower, clim_upper):
+    len_phi = len(cp.winding_surface.quadpoints_phi)//cp.winding_surface.nfp
+    fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(9,3))
+    ax1 = axes[0]
+    pcolor1 = ax1.pcolor(
+        cp.winding_surface.quadpoints_phi[:len_phi]*np.pi*2,
+        cp.winding_surface.quadpoints_theta*np.pi*2,
+        comps[:,:,0],
+        cmap='seismic',
+        vmin=clim_lower, 
+        vmax=clim_upper
+    )
+
+    ax2 = axes[1]
+    pcolor2 = ax2.pcolor(
+        cp.winding_surface.quadpoints_phi[:len_phi]*np.pi*2,
+        cp.winding_surface.quadpoints_theta*np.pi*2,
+        comps[:,:,1],
+        cmap='seismic',
+        vmin=clim_lower, 
+        vmax=clim_upper
+    )
+
+    ax3 = axes[2]
+    pcolor3 = ax3.pcolor(
+        cp.winding_surface.quadpoints_phi[:len_phi]*np.pi*2,
+        cp.winding_surface.quadpoints_theta*np.pi*2,
+        comps[:,:,2],
+        cmap='seismic',
+        vmin=clim_lower, 
+        vmax=clim_upper
+    )
+    fig.text(0.5, 0, r'Toroidal angle $\zeta$', ha='center')
+    fig.text(0.08, 0.5, r'Poloidal angle $\theta$', va='center', rotation='vertical')
+    cb_ax = fig.add_axes([0.91, 0.05, 0.01, 0.9])
+    cbar = fig.colorbar(pcolor3, cax=cb_ax, label=r'$(K\cdot\nabla K)_{R, \phi, Z} (A^2/m^3)$')
+    plt.show()
+    print('Max comp:', np.max(np.abs(comps)))
+    print('Avg comp:', np.average(np.abs(comps)))
+    print('Max l2:', np.max(np.linalg.norm(comps, axis=-1)))
+    print('Avg l2:', np.average(np.linalg.norm(comps, axis=-1)))
 
 def plot_coil_Phi_IG(
     cp_opt:CurrentPotentialFourier, 
@@ -62,8 +103,6 @@ def plot_coil_Phi_IG(
     `plot_2d_contour` - When True, plots 2d contour also 
     '''
     theta1d, phi1d = cp_opt.quadpoints_theta, cp_opt.quadpoints_phi
-    theta2d, phi2d = np.meshgrid(theta1d, phi1d)
-
     # Creating interpolation for mapping 2d contours onto 3d surface
     gamma=cp_opt.winding_surface.gamma()
     # Wrapping gamma and theta for periodic interpolation
@@ -77,25 +116,11 @@ def plot_coil_Phi_IG(
         np.array([phi2d_periodic.flatten(), theta2d_periodic.flatten()]).T,
         gamma_periodic.reshape(-1, 3)
     )
-
-    # Calculating Phi
-    G = cp_opt.net_poloidal_current_amperes
-    I = cp_opt.net_toroidal_current_amperes  
-    if plot_sv_only:
-        Phi = cp_opt.Phi()  
-    else:    
-        Phi = cp_opt.Phi() \
-            + phi2d*G \
-            + theta2d*I
-
-
     # Making 2d contour plot   
-    quad_contour_set = plt.contour(
-        phi2d,
-        theta2d, 
-        Phi,
-        levels=nlevels,
-        algorithm='threaded'
+    quad_contour_set = plot_coil_contours(
+        cp_opt=cp_opt, 
+        nlevels=nlevels, 
+        plot_sv_only=plot_sv_only
     )
     if plot_2d_contour:
         plt.show()
@@ -105,7 +130,7 @@ def plot_coil_Phi_IG(
     fig.set_dpi(400)
     ax = fig.add_subplot(projection='3d')
 
-    norm = colors.Normalize(vmin=np.min(Phi), vmax=np.max(Phi), clip=True)
+    norm = colors.Normalize(vmin=np.min(cp_opt.get_dofs()), vmax=np.max(cp_opt.get_dofs()), clip=True)
     mapper = cm.ScalarMappable(norm=norm, cmap=cm.plasma)
     level_color = mapper.to_rgba(quad_contour_set.levels)
 
@@ -114,27 +139,25 @@ def plot_coil_Phi_IG(
     for i in range(len(quad_contour_set.allsegs)):
         # Loop over all contour levels
         seg_i = quad_contour_set.allsegs[i]
-        kind_i = quad_contour_set.allkinds[i]
-        # Splitting each contour level by vertex kind.
-        # only kind=2 should be plotted.
-        seg_i[kind_i==1] = np.nan
-        list_of_segments = [
-            list(g) for m, g in itertools.groupby(
-                seg_i, key=lambda x: not np.all(np.isnan(x))
-            ) if m
-        ]
-        for segment in list_of_segments:
-            # If there are more than 0 segments for the level
-            # Mapping the segments' phi, theta coordinate into xyz
-            xyz_seg_i = phi_theta_to_xyz(segment)
-            ax.plot(
-                xyz_seg_i[:,0], 
-                xyz_seg_i[:,1], 
-                xyz_seg_i[:,2],
-                # facecolors=facecolors
-                c=level_color[i],
-                linewidth = 0.5
-            )
+        if len(seg_i)>0:
+            # seg_i[kind_i==1] = np.nan
+            list_of_levels = [
+                list(g) for m, g in itertools.groupby(
+                    seg_i, key=lambda x: not np.all(np.isnan(x))
+                ) if m
+            ]
+            for level in list_of_levels:
+                # A level ideally contains only one segment.
+                    for segment in level:
+                        xyz_seg_i = phi_theta_to_xyz(segment)
+                        ax.plot(
+                            xyz_seg_i[:,0], 
+                            xyz_seg_i[:,1], 
+                            xyz_seg_i[:,2],
+                            # facecolors=facecolors
+                            c=level_color[i],
+                            linewidth = 0.5
+                        )
 
     ax.axis('equal')
     return(fig, ax)
