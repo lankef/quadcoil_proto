@@ -18,18 +18,10 @@ def squared_flux(coils, plasma_surface):
     bs.set_points(plasma_surface.gamma().reshape((-1, 3)))
     return(SquaredFlux(plasma_surface, bs).J())
 
-# This script assumes the contours do not zig-zag back and forth across the theta=0 line,
-# after shifting the current potential by thetaShift grid points.
-# The nescin file is used to provide the coil winding surface, so make sure this is consistent with the regcoil run.
-# ilambda is the index in the lambda scan which you want to select.
-# def cut_coil(cp, cpst):
-# filename = 'regcoil_out.li383.nc' # sys.argv[1]
-# TODO: these tow have a lot of duplicate code. CLean up when finalizing how QUADCOIL is integrated.
-def coil_xyz_from_cp(
+def coil_zeta_theta_from_cp(
     cp:CurrentPotentialFourier,
     coilsPerHalfPeriod=1,
-    thetaShift=0,
-    save=False, save_name='placeholder'): 
+    thetaShift=0): 
 
     nzeta_coil = len(cp.winding_surface.quadpoints_phi)
     # f.variables['nfp'][()]
@@ -83,12 +75,62 @@ def coil_xyz_from_cp(
         if v[1,1]<v[0,1]:
             v = np.flipud(v)
 
-
         for jfp in range(nfp):
             d = 2*np.pi/nfp*jfp
             contour_zeta.append(v[:,0]+d)
             contour_theta.append(v[:,1])
             numCoils += 1
+    print('numCoils', numCoils)
+    print('contour_zeta', len(contour_zeta))
+    print('contour_theta', len(contour_theta))
+    return(contour_zeta, contour_theta)
+
+def ifft_simsopt_legacy(x, order):
+    assert len(x) >= 2*order  # the order of the fft is limited by the number of samples
+    xf = rfft(x) / len(x)
+
+    fft_0 = [xf[0].real]  # find the 0 order coefficient
+    fft_cos = 2 * xf[1:order + 1].real  # find the cosine coefficients
+    fft_sin = -2 * xf[:order + 1].imag  # find the sine coefficients
+
+    combined_fft = np.concatenate([fft_sin, fft_0, fft_cos])
+    return(combined_fft)
+
+# IFFT a array in real space to a sin/cos series used by sinsopt.geo.curve
+def ifft_simsopt(x, order):
+    assert len(x) >= 2*order  # the order of the fft is limited by the number of samples
+    xf = rfft(x) / len(x)
+
+    fft_0 = [xf[0].real]  # find the 0 order coefficient
+    fft_cos = 2 * xf[1:order + 1].real  # find the cosine coefficients
+    fft_sin = (-2 * xf[:order + 1].imag)[1:]  # find the sine coefficients
+    dof = np.zeros(order*2+1)
+    dof[0] = fft_0[0]
+    dof[1::2] = fft_sin
+    dof[2::2] = fft_cos
+
+    return(dof)
+
+# This script assumes the contours do not zig-zag back and forth across the theta=0 line,
+# after shifting the current potential by thetaShift grid points.
+# The nescin file is used to provide the coil winding surface, so make sure this is consistent with the regcoil run.
+# ilambda is the index in the lambda scan which you want to select.
+# def cut_coil(cp, cpst):
+# filename = 'regcoil_out.li383.nc' # sys.argv[1]
+# TODO: these tow have a lot of duplicate code. CLean up when finalizing how QUADCOIL is integrated.
+def coil_xyz_from_cp(
+    cp:CurrentPotentialFourier,
+    coilsPerHalfPeriod=1,
+    thetaShift=0,
+    save=False, save_name='placeholder'): 
+    contour_zeta, contour_theta = coil_zeta_theta_from_cp(
+        cp=cp,
+        coilsPerHalfPeriod=coilsPerHalfPeriod,
+        thetaShift=thetaShift
+    )
+    numCoils = len(contour_zeta)    
+    nfp = cp.winding_surface.nfp 
+    net_poloidal_current_amperes = cp.net_poloidal_current_amperes 
 
     # ------------------------
     # Load surface shape
@@ -172,7 +214,7 @@ def coil_xyz_from_cp(
     )
 
 # Load coils from lists of arrays containing x, y, and z.
-def load_curves_from_xyz(
+def load_curves_from_xyz_legacy(
     contour_X,
     contour_Y,
     contour_Z, 
@@ -185,9 +227,8 @@ def load_curves_from_xyz(
             yArr = contour_Y[i]
             zArr = contour_Z[i]
             for x in [xArr, yArr, zArr]:
-                if len(x)//3<order:
+                if len(x)//2<order:
                     order = len(x)//2
-        print(order)
     coil_data = []
     # Compute the Fourier coefficients for each coil
     for i in range(len(contour_X)):
@@ -196,17 +237,9 @@ def load_curves_from_xyz(
         zArr = contour_Z[i]
 
         curves_Fourier = []
-
         # Compute the Fourier coefficients
         for x in [xArr, yArr, zArr]:
-            assert len(x) >= 2*order  # the order of the fft is limited by the number of samples
-            xf = rfft(x) / len(x)
-
-            fft_0 = [xf[0].real]  # find the 0 order coefficient
-            fft_cos = 2 * xf[1:order + 1].real  # find the cosine coefficients
-            fft_sin = -2 * xf[:order + 1].imag  # find the sine coefficients
-
-            combined_fft = np.concatenate([fft_sin, fft_0, fft_cos])
+            combined_fft = ifft_simsopt_legacy(x, order)
             curves_Fourier.append(combined_fft)
 
         coil_data.append(np.concatenate(curves_Fourier))
@@ -235,6 +268,41 @@ def load_curves_from_xyz(
         coils[ic].local_x = np.concatenate(dofs)
     return(coils)
 
+# Load curves from lists of arrays containing x, y, and z.
+def load_curves_from_xyz(
+    contour_X,
+    contour_Y,
+    contour_Z, 
+    order=None, ppp=20):
+    num_coils = len(contour_X)
+    # Calculating order
+    if not order:
+        order=float('inf')
+        for i in range(num_coils):
+            xArr = contour_X[i]
+            yArr = contour_Y[i]
+            zArr = contour_Z[i]
+            for x in [xArr, yArr, zArr]:
+                if len(x)//2<order:
+                    order = len(x)//2
+    
+    coils = [CurveXYZFourier(order*ppp, order) for i in range(num_coils)]
+    # Compute the Fourier coefficients for each coil
+    for ic in range(num_coils):
+        xArr = contour_X[ic]
+        yArr = contour_Y[ic]
+        zArr = contour_Z[ic]
+
+        # Compute the Fourier coefficients
+        dofs=[]
+        for x in [xArr, yArr, zArr]:
+            dof_i = ifft_simsopt(x, order)
+            dofs.append(dof_i)
+
+        coils[ic].local_x = np.concatenate(dofs)
+    return(coils)
+
+# Load curves and currents 
 def load_coils_from_xyz(
     contour_X,
     contour_Y,
