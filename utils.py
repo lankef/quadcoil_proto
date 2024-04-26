@@ -13,8 +13,10 @@ avg_order_of_magnitude = lambda x: np.exp(np.average(np.log(np.abs(x[x!=0]))))
 sin_or_cos = lambda x, mode: np.where(mode==1, np.sin(x), np.cos(x))
 
 ''' Winding surface '''
-def gen_winding_surface(source_surface, d_expand, mpol=2, ntor=2):
+def gen_winding_surface(source_surface, d_expand):
     # Expanding plasma surface to winding surface
+    mpol = source_surface.mpol
+    ntor = source_surface.ntor    
     gamma_source_surface = source_surface.gamma()
     len_phi = gamma_source_surface.shape[0]
     len_phi_hi_res = gamma_source_surface.shape[0] * source_surface.nfp

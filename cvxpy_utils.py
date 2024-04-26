@@ -46,6 +46,7 @@ def cvxpy_no_windowpane(cp, current_scale, X):
                 )>=0
             )
     else:
+        print('Net current is negative')
         for i in range(loop_size):
             constraints.append(
                 cvxpy.trace(
