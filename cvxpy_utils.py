@@ -141,3 +141,55 @@ def cvxpy_create_Linf_from_array(grid_3d_operator, X, stellsym):
                 )>=-Linf
             )
     return(constraints, Linf)
+
+def cvxpy_create_Linf_leq_from_array(grid_3d_operator, grid_3d_operator_scale, grid_1d_operator, grid_1d_operator_scale, k_param, X, stellsym):
+    '''
+    Constructing cvxpy constraints and variables necessary for the following constraint:
+
+    -kg(x) <= ||f(x)||_\infty <= kg(x)
+    
+    -- Inputs:
+    grid_3d_operator: Array, has shape (n_grid, 3, ndof+1, ndof+1)
+    X: cvxpy Variable
+    stellsym: Whether the grid the operator lives on has stellarator 
+    symmetry.
+
+    -- Outputs:
+    constraints: A list of cvxpy constraints. 
+    Linf: Adding a lam*Linf term in the 
+    objective adds an L1 norm term.
+    '''
+    if stellsym:
+        loop_size = grid_3d_operator.shape[0]//2
+    else:
+        loop_size = grid_3d_operator.shape[0]
+
+    #k_param = cvxpy.Variable()
+    k_param_eff = k_param * grid_1d_operator_scale / grid_3d_operator_scale 
+    constraints = []
+    for i in range(loop_size):
+        for j in range(3):
+            # K dot nabla K L1
+            if np.all(grid_3d_operator[i, j, :, :]==0):
+                continue
+            # constraints.append(
+            #     cvxpy.trace(grid_1d_operator[i, :, :] @ X)
+            #     >=0
+            # )
+            constraints.append(
+                cvxpy.trace(
+                    (
+                        grid_3d_operator[i, j, :, :] 
+                        - k_param_eff * grid_1d_operator[i, :, :]
+                    ) @ X
+                )<=0
+            )
+            constraints.append(
+                cvxpy.trace(
+                    (
+                        -grid_3d_operator[i, j, :, :] 
+                        - k_param_eff * grid_1d_operator[i, :, :]
+                    ) @ X
+                )<=0
+            )
+    return(constraints)

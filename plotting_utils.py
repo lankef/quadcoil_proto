@@ -93,7 +93,8 @@ def plot_coil_Phi_IG(
     cp_opt:CurrentPotentialFourier, 
     nlevels=40, 
     plot_sv_only=False, 
-    plot_2d_contour=False):
+    plot_2d_contour=False,
+    cmap=cm.plasma):
     '''
     Plots a coil configuration on 3d surface. 
     Parameters:
@@ -130,8 +131,8 @@ def plot_coil_Phi_IG(
     fig.set_dpi(400)
     ax = fig.add_subplot(projection='3d')
 
-    norm = colors.Normalize(vmin=np.min(cp_opt.get_dofs()), vmax=np.max(cp_opt.get_dofs()), clip=True)
-    mapper = cm.ScalarMappable(norm=norm, cmap=cm.plasma)
+    norm = colors.Normalize(vmin=np.min(cp_opt.Phi()), vmax=np.max(cp_opt.Phi()), clip=True)
+    mapper = cm.ScalarMappable(norm=norm, cmap=cmap)
     level_color = mapper.to_rgba(quad_contour_set.levels)
 
     # Phi contours:

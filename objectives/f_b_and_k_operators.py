@@ -94,6 +94,8 @@ def K_operator_cylindrical(cpst: CurrentPotentialSolve, current_scale, normalize
         AK_operator_cylindrical /= AK_scale
     return(AK_operator_cylindrical, AK_scale)
 
+# L2_unit: when True, multiplies with Jacobian so that the sum over the result 
+# is the integral of K^2 over the plasma surface.
 def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True, L2_unit=False):
     AK = (-cpst.fj).reshape(
         # Reshape to the same shape as 
