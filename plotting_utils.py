@@ -10,10 +10,12 @@ from matplotlib import cm, colors
 # Importing simsopt 
 from simsopt.field import CurrentPotentialFourier
 
+
 def plot_coil_contours(
     cp_opt:CurrentPotentialFourier, 
     nlevels=40, 
-    plot_sv_only=False):
+    plot_sv_only=False,
+    plot_1fp=False):
     '''
     Plots a coil configuration on 3d surface. 
     Parameters:
@@ -34,18 +36,38 @@ def plot_coil_contours(
         Phi = cp_opt.Phi() \
             + phi2d*G \
             + theta2d*I
-
+    print(phi2d.shape)
+    # print(theta2d)
+    phi2d = np.pad(phi2d, ((0,0), (0,1)), 'edge')
+    phi2d = np.pad(phi2d, ((0,1), (0,0)), constant_values=1)
+    theta2d = np.pad(theta2d, ((0,1), (0,0)), 'edge')
+    theta2d = np.pad(theta2d, ((0,0), (0,1)), constant_values=1)
+    Phi = np.pad(Phi, ((0,1), (0,1)), 'wrap')
+    print(phi2d)
+    # print(theta2d)
     # Making 2d contour plot   
-    quad_contour_set = plt.contour(
-        phi2d,
-        theta2d, 
-        Phi,
-        levels=nlevels,
-        algorithm='threaded'
-    )
+    if plot_1fp:
+        len_new = len(phi2d)//cp_opt.nfp
+        quad_contour_set = plt.contour(
+            phi2d[:len_new, :],
+            theta2d[:len_new, :], 
+            Phi[:len_new, :],
+            levels=nlevels //cp_opt.nfp,
+            algorithm='threaded',
+            cmap='plasma'
+        )
+    else:
+        quad_contour_set = plt.contour(
+            phi2d,
+            theta2d, 
+            Phi,
+            levels=nlevels,
+            algorithm='threaded',
+            cmap='plasma'
+        )
     plt.xlabel('Toroidal angle')
     plt.ylabel('Poloidal angle')
-    return(quad_contour_set)
+    return(quad_contour_set, Phi)
 
 def plot_comps(cp, comps, clim_lower, clim_upper):
     len_phi = len(cp.winding_surface.quadpoints_phi)//cp.winding_surface.nfp
@@ -118,7 +140,7 @@ def plot_coil_Phi_IG(
         gamma_periodic.reshape(-1, 3)
     )
     # Making 2d contour plot   
-    quad_contour_set = plot_coil_contours(
+    quad_contour_set, Phi = plot_coil_contours(
         cp_opt=cp_opt, 
         nlevels=nlevels, 
         plot_sv_only=plot_sv_only
@@ -131,7 +153,7 @@ def plot_coil_Phi_IG(
     fig.set_dpi(400)
     ax = fig.add_subplot(projection='3d')
 
-    norm = colors.Normalize(vmin=np.min(cp_opt.Phi()), vmax=np.max(cp_opt.Phi()), clip=True)
+    norm = colors.Normalize(vmin=np.min(Phi), vmax=np.max(Phi), clip=True)
     mapper = cm.ScalarMappable(norm=norm, cmap=cmap)
     level_color = mapper.to_rgba(quad_contour_set.levels)
 
@@ -167,11 +189,15 @@ def plot_trade_off(
         Phi_list, 
         f_x, f_y, 
         xlabel, ylabel, 
+        plot=False,
         **kwargs
     ):
     x_list = list(map(f_x, Phi_list))
     y_list = list(map(f_y, Phi_list))
-    plt.scatter(x_list, y_list, **kwargs)
+    if plot:
+        plt.plot(x_list, y_list, **kwargs)
+    else:
+        plt.scatter(x_list, y_list, **kwargs)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
 

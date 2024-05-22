@@ -5,6 +5,8 @@ import numpy as np
 # from simsopt.field.magneticfieldclasses import WindingSurfaceField
 from simsopt.field import CurrentPotentialFourier, CurrentPotentialSolve
 from simsopt.geo import SurfaceRZFourier, SurfaceXYZTensorFourier, plot
+from scipy.spatial import ConvexHull
+from scipy.interpolate import CubicSpline
 # from simsoptpp import WindingSurfaceBn_REGCOIL
 
 avg_order_of_magnitude = lambda x: np.exp(np.average(np.log(np.abs(x[x!=0]))))
@@ -13,44 +15,144 @@ avg_order_of_magnitude = lambda x: np.exp(np.average(np.log(np.abs(x[x!=0]))))
 sin_or_cos = lambda x, mode: np.where(mode==1, np.sin(x), np.cos(x))
 
 ''' Winding surface '''
+
+def gen_conv_winding_surface(plasma_surface, d_expand):
+
+    winding_surface = SurfaceRZFourier(
+        nfp=plasma_surface.nfp, 
+        stellsym=plasma_surface.stellsym, 
+        mpol=plasma_surface.mpol, 
+        ntor=plasma_surface.ntor, 
+        quadpoints_phi=plasma_surface.quadpoints_phi, 
+        quadpoints_theta=plasma_surface.quadpoints_theta, 
+    )
+    winding_surface.set_dofs(plasma_surface.get_dofs())
+    winding_surface.extend_via_normal(d_expand)
+    # A naively expanded surface usually has self-intersections 
+    # in the poloidal cross section when the plasma is bean-shaped.
+    # To avoid this, we create a new surface by taking each poloidal cross section's 
+    # convex hull.
+    winding_surface = winding_surface.to_RZFourier()
+    gamma = winding_surface.gamma()
+    gamma_R = np.linalg.norm([gamma[:,:,0], gamma[:,:,1]], axis=0)
+    gamma_Z = gamma[:,:,2]
+    gamma_new = np.zeros_like(gamma)
+
+    for i_phi in range(gamma.shape[0]):
+        phi_i = winding_surface.quadpoints_phi[i_phi]
+        cross_sec_R_i = gamma_R[i_phi]
+        cross_sec_Z_i = gamma_Z[i_phi]
+        ConvexHull_i = ConvexHull(
+            np.array([
+                cross_sec_R_i,
+                cross_sec_Z_i
+            ]).T
+        )
+        vertices_i = ConvexHull_i.vertices
+        # Obtaining vertices
+        vertices_R_i = cross_sec_R_i[vertices_i]
+        vertices_Z_i = cross_sec_Z_i[vertices_i]
+
+        # Create periodic array for interpolation
+        vertices_R_periodic_i = np.append(vertices_R_i, vertices_R_i[0])
+        vertices_Z_periodic_i = np.append(vertices_Z_i, vertices_Z_i[0])
+
+        # Parameterize the series of vertices with 
+        # arc length
+        delta_R = np.diff(vertices_R_periodic_i)
+        delta_Z = np.diff(vertices_Z_periodic_i)
+        segment_length = np.sqrt(delta_R**2 + delta_Z**2)
+        arc_length = np.cumsum(segment_length)
+        arc_length_periodic = np.concatenate(([0], arc_length))
+        arc_length_periodic_norm = arc_length_periodic/arc_length_periodic[-1]
+
+        # Interpolate
+        spline_i = CubicSpline(
+            arc_length_periodic_norm, 
+            np.array([vertices_R_periodic_i, vertices_Z_periodic_i]).T,
+            bc_type='periodic'
+        )
+
+        # Re-calculate R and Z from uniformly spaced theta
+        conv_gamma_RZ_i = spline_i(winding_surface.quadpoints_theta)
+        conv_gamma_R_i = conv_gamma_RZ_i[:, 0]
+        conv_gamma_Z_i = conv_gamma_RZ_i[:, 1]
+
+        # The starting point of each contour directly impacts the 
+        # smoothness of the surface in the toroidal direction.
+        # We find the point with Z coord closest to the centroid of the cross section
+        # on the outboard side.
+        R_center_i = np.average(conv_gamma_R_i)
+        Z_center_i = np.average(conv_gamma_Z_i)
+        Z_outboard_i = np.where(conv_gamma_R_i>R_center_i, conv_gamma_Z_i, np.nan)
+
+        roll_i = np.nanargmin(np.abs(Z_outboard_i - Z_center_i))
+        conv_gamma_R_i = np.roll(conv_gamma_R_i, -roll_i)
+        conv_gamma_Z_i = np.roll(conv_gamma_Z_i, -roll_i)
+        conv_gamma_X_i = conv_gamma_R_i*np.cos(phi_i*np.pi*2)
+        conv_gamma_Y_i = conv_gamma_R_i*np.sin(phi_i*np.pi*2)
+        gamma_new[i_phi, :, 0] = conv_gamma_X_i
+        gamma_new[i_phi, :, 1] = conv_gamma_Y_i
+        gamma_new[i_phi, :, 2] = conv_gamma_Z_i
+    # Fitting to XYZ tensor fourier surface
+    winding_surface_new = SurfaceXYZTensorFourier( 
+        nfp=winding_surface.nfp,
+        stellsym=winding_surface.stellsym,
+        mpol=winding_surface.mpol,
+        ntor=winding_surface.ntor,
+        quadpoints_phi=winding_surface.quadpoints_phi,
+        quadpoints_theta=winding_surface.quadpoints_theta,
+    )
+    winding_surface_new.least_squares_fit(gamma_new)
+    winding_surface_new = winding_surface_new.to_RZFourier()
+
+    # Copying to all field periods
+    len_phi_full = len(plasma_surface.quadpoints_phi) * plasma_surface.nfp
+    winding_surface_out = SurfaceRZFourier(
+        nfp=plasma_surface.nfp, 
+        stellsym=plasma_surface.stellsym, 
+        mpol=plasma_surface.mpol, 
+        ntor=plasma_surface.ntor, 
+        quadpoints_phi=np.arange(len_phi_full)/len_phi_full, 
+        quadpoints_theta=plasma_surface.quadpoints_theta, 
+    )
+    winding_surface_out.set_dofs(winding_surface_new.get_dofs())
+    return(winding_surface_out)
+# Assumes that source_surface only contains 1 field period!
 def gen_winding_surface(source_surface, d_expand):
     # Expanding plasma surface to winding surface
-    mpol = source_surface.mpol
-    ntor = source_surface.ntor    
-    gamma_source_surface = source_surface.gamma()
-    len_phi = gamma_source_surface.shape[0]
-    len_phi_hi_res = gamma_source_surface.shape[0] * source_surface.nfp
-    len_theta = gamma_source_surface.shape[1]
-    unit_normal_source_surface = source_surface.unitnormal()
-    delta_gamma = unit_normal_source_surface * d_expand
-    winding_gamma = gamma_source_surface + delta_gamma
-    winding_surface_tensor = SurfaceXYZTensorFourier( 
+    len_phi = len(source_surface.quadpoints_phi)
+    len_phi_full_fp = len_phi * source_surface.nfp
+    len_theta = len(source_surface.quadpoints_theta)
+    
+    winding_surface = SurfaceRZFourier(
         nfp=source_surface.nfp, 
         stellsym=source_surface.stellsym, 
-        mpol=mpol, 
-        ntor=ntor, 
-        quadpoints_phi=np.arange(len_phi)/len_phi, 
-        quadpoints_theta=np.arange(len_theta)/len_theta
+        mpol=source_surface.mpol, 
+        ntor=source_surface.ntor, 
+        quadpoints_phi=np.arange(len_phi_full_fp)/len_phi_full_fp, 
+        quadpoints_theta=np.arange(len_theta)/len_theta, 
     )
-    # print('source srf')
-    # plot([source_surface])
-    winding_surface_tensor.least_squares_fit(winding_gamma)
-    winding_surface_low_res = winding_surface_tensor.to_RZFourier()
-    # Increasing phi resolution by nfp times 
-    # Because during Biot Savart, the entire
-    # winding surface is used, rather than 
-    # just one period, so there need to be more 
-    # quadrature points.
-    winding_surface_hi_res = SurfaceRZFourier(
-        nfp=winding_surface_low_res.nfp, 
-        stellsym=winding_surface_low_res.stellsym, 
-        mpol=mpol, 
-        ntor=ntor, 
-        quadpoints_phi=np.arange(len_phi_hi_res)/len_phi_hi_res, 
-        quadpoints_theta=np.arange(len_theta)/len_theta
-    )
-    winding_surface_hi_res.set_dofs(winding_surface_low_res.get_dofs())
-    return(winding_surface_hi_res)
+    winding_surface.set_dofs(source_surface.get_dofs())
+    winding_surface.extend_via_normal(-d_expand)
+
+    # Quadsr's surface seem to be oriented that extend_via_projected_normal 
+    # with a negative distance expands the surface. Just to make sure,
+    # add a check for minor radius.
+    if winding_surface.minor_radius() < source_surface.minor_radius():
+        winding_surface = SurfaceRZFourier(
+            nfp=source_surface.nfp, 
+            stellsym=source_surface.stellsym, 
+            mpol=source_surface.mpol, 
+            ntor=source_surface.ntor, 
+            quadpoints_phi=np.arange(len_phi_full_fp)/len_phi_full_fp, 
+            quadpoints_theta=np.arange(len_theta)/len_theta, 
+        )
+        winding_surface.set_dofs(source_surface.get_dofs())
+        winding_surface.extend_via_projected_normal(d_expand)
+
+    return(winding_surface)
+
 
 ''' Operator projection '''
 def project_field_operator_coord(
@@ -129,7 +231,7 @@ def self_outer_prod_matrix(arr_2d):
     '''
     return(arr_2d[None, :, :, None] * arr_2d[:, None, None, :])
 
-def run_nescoil(
+def run_nescoil_legacy(
         filename,
         mpol = 4,
         ntor = 4,
@@ -171,6 +273,53 @@ def run_nescoil(
     cp_opt = cpst.current_potential
     
     return(cp, cpst, cp_opt, optimized_phi_mn)
+
+def run_nescoil(
+        filename,
+        mpol = 4,
+        ntor = 4,
+        d_expand_norm = 2,
+        coil_ntheta_res = 1,
+        coil_nzeta_res = 1,
+        plasma_ntheta_res = 1,
+        plasma_nzeta_res = 1):
+    '''
+    Loads a CurrentPotentialFourier, a CurrentPotentialSolve 
+    and a CurrentPotentialFourier containing the NESCOIL result.
+    
+    Works for 
+    '/simsopt/tests/test_files/regcoil_out.hsx.nc'
+    '/simsopt/tests/test_files/regcoil_out.li383.nc'
+    '''
+    # Load in low-resolution NCSX file from REGCOIL
+    
+    cp_temp = CurrentPotentialFourier.from_netcdf(filename, coil_ntheta_res, coil_nzeta_res)
+    coil_nzeta_res *= cp_temp.nfp
+ 
+    cpst = CurrentPotentialSolve.from_netcdf(
+        filename, plasma_ntheta_res, plasma_nzeta_res, coil_ntheta_res, coil_nzeta_res
+    )
+
+    plasma_surface = cpst.plasma_surface
+    d_expand = d_expand_norm * plasma_surface.minor_radius()
+    winding_surface_conv = gen_conv_winding_surface(plasma_surface, d_expand)
+
+    # Overwrite low-resolution file with more mpol and ntor modes
+    cp = CurrentPotentialFourier(
+        winding_surface_conv, mpol=mpol, ntor=ntor,
+        net_poloidal_current_amperes=cp_temp.net_poloidal_current_amperes,
+        net_toroidal_current_amperes=cp_temp.net_toroidal_current_amperes,
+        stellsym=True)
+    
+    cpst = CurrentPotentialSolve(cp, plasma_surface, cpst.Bnormal_plasma)
+    
+    # Discard L2 regularization for testing against linear relaxation
+    lambda_reg = 0
+    optimized_phi_mn, f_B, _ = cpst.solve_tikhonov(lam=lambda_reg)
+    cp_opt = cpst.current_potential
+    
+    return(cp, cpst, cp_opt, optimized_phi_mn)
+
 
 def change_cp_resolution(cp: CurrentPotentialFourier, n_phi:int, n_theta:int):
     '''

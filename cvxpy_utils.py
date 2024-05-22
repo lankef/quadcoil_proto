@@ -38,6 +38,7 @@ def cvxpy_no_windowpane(cp, current_scale, X):
     # This if statement distinguishes the sign of 
     # tot. pol. current. The total current should never
     # change sign.
+    print('Testing net current sign')
     if cp.net_poloidal_current_amperes > 0:
         for i in range(loop_size):
             constraints.append(
