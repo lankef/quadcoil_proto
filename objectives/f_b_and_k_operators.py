@@ -84,11 +84,9 @@ def K_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
     It cannot directly produce a scalar objective, but can be used 
     for constructing norms (L1, L2). 
     '''
-    # Equivalent to A in regcoil.
-    normN = np.linalg.norm(cpst.plasma_surface.normal().reshape(-1, 3), axis=-1)
-    B_normal = cpst.gj/np.sqrt(normN[:, None])
-    # Scaling factor to make X matrix dimensionless. 
-    current_scale = avg_order_of_magnitude(B_normal)/avg_order_of_magnitude(cpst.b_e)
+    # Here, we take advantage of the fj matrix already 
+    # implemented in CurrentPotentialSolve. 
+    # This matrix evaluates the current.
     # fj's angles doesn't match cp.k()
     K_angle_scale = (np.pi*2)**2/cpst.plasma_surface.nfp
     AK = (-cpst.fj*K_angle_scale).reshape(
