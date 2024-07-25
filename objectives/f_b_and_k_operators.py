@@ -57,6 +57,33 @@ def K_operator_cylindrical(cpst: CurrentPotentialSolve, current_scale, normalize
     It cannot directly produce a scalar objective, but can be used 
     for constructing norms (L1, L2). 
     '''
+    AK_operator, _ = K_operator(
+        CurrentPotentialSolve=CurrentPotentialSolve, 
+        current_scale=current_scale, 
+        normalize=False
+    )
+    AK_operator_cylindrical = utils.project_field_operator_cylindrical(
+        cp=cpst.current_potential,
+        operator=AK_operator
+    )
+    if normalize:
+        AK_scale = avg_order_of_magnitude(AK_operator_cylindrical)
+        AK_operator_cylindrical /= AK_scale
+    return(AK_operator_cylindrical, AK_scale)
+
+def K_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
+    '''
+    Produces a dimensionless K operator that act on X by 
+    tr(AX). Note that this operator is linear in Phi, rather
+    than X.
+
+    The K oeprator has shape (#grid per period, 3, nfod+1, ndof+1). 
+    tr(A[i, j, :, :]X) cannot gives the grid value of a K component
+    in (R, phi, Z). 
+
+    It cannot directly produce a scalar objective, but can be used 
+    for constructing norms (L1, L2). 
+    '''
     # Equivalent to A in regcoil.
     normN = np.linalg.norm(cpst.plasma_surface.normal().reshape(-1, 3), axis=-1)
     B_normal = cpst.gj/np.sqrt(normN[:, None])
@@ -82,14 +109,10 @@ def K_operator_cylindrical(cpst: CurrentPotentialSolve, current_scale, normalize
         [np.zeros_like(AK)[:, :, :, None, :], bK[:, :, :, None, None]]
     ])
     AK_operator = 0.5*(AK_operator+np.swapaxes(AK_operator, -2, -1))
-    AK_operator_cylindrical = utils.project_field_operator_cylindrical(
-        cp=cpst.current_potential,
-        operator=AK_operator
-    )
     if normalize:
-        AK_scale = avg_order_of_magnitude(AK_operator_cylindrical)
-        AK_operator_cylindrical /= AK_scale
-    return(AK_operator_cylindrical, AK_scale)
+        AK_scale = avg_order_of_magnitude(AK_operator)
+        AK_operator /= AK_scale
+    return(AK_operator, AK_scale)
 
 # L2_unit: when True, multiplies with Jacobian so that the sum over the result 
 # is the integral of K^2 over the plasma surface.
