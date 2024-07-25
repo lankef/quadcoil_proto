@@ -1,16 +1,7 @@
 from matplotlib import pyplot as plt
 import numpy as np
 
-from pathlib import Path
-import os
-import time
-from pyevtk.hl import pointsToVTK
-
-from simsopt.objectives import SquaredFlux
-from simsopt.field.magneticfieldclasses import WindingSurfaceField
 from simsopt.field import CurrentPotentialFourier, CurrentPotentialSolve
-from simsopt.geo import SurfaceRZFourier
-from simsoptpp import WindingSurfaceBn_REGCOIL
 
 # Looking into what the format of phi is:
 def run_target_test(
