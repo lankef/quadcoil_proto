@@ -1,9 +1,13 @@
 # Import packages.
 import numpy as np
+import sys
+sys.path.insert(1,'..')
 import utils
 from utils import avg_order_of_magnitude, sin_or_cos
 from simsopt.field import CurrentPotentialSolve
 import simsoptpp as sopp
+
+
 def f_B_operator_and_current_scale(cpst: CurrentPotentialSolve, normalize=True):
     '''
     Produces a dimensionless f_B and K operator that act on X by 
@@ -71,6 +75,56 @@ def K_operator_cylindrical(cpst: CurrentPotentialSolve, current_scale, normalize
         AK_operator_cylindrical /= AK_scale
     return(AK_operator_cylindrical, AK_scale)
 
+def AK_helper(cpst: CurrentPotentialSolve, L2_unit=False):
+    '''
+    We take advantage of the fj matrix already 
+    implemented in CurrentPotentialSolve to calculate K.
+    This is a helper method that applies the necessary units 
+    and scaling factors. 
+    
+    When L2_unit=True, the resulting matrices 
+    contains the surface element and jacobian for integrating K^2
+    over the winding surface.
+
+    When L2_unit=False, the resulting matrices calculates
+    the actual components of K.
+    '''
+    signed_fj = -cpst.fj
+    signed_d = cpst.d
+    if not L2_unit:
+        dzeta_coil = (
+            cpst.winding_surface.quadpoints_phi[1] 
+            - cpst.winding_surface.quadpoints_phi[0]
+        )
+        dtheta_coil = (
+            cpst.winding_surface.quadpoints_theta[1] 
+            - cpst.winding_surface.quadpoints_theta[0]
+        )
+        normal_vec = cpst.winding_surface.normal()
+        normn = np.sqrt(np.sum(normal_vec**2, axis=-1)) # |N|
+        normn = normn.reshape(-1)
+        factor = (np.sqrt(dzeta_coil * dtheta_coil) * normn)**-1
+        signed_fj = signed_fj * factor[:, None, None]
+        signed_d = signed_d * factor[:, None]
+    # test_K_2 = (
+    #     -(cpst.fj @ cp.get_dofs() - cpst.d) 
+    #     / 
+    # )
+    shape_gamma = (
+        len(cpst.winding_surface.quadpoints_phi),
+        len(cpst.winding_surface.quadpoints_theta),
+        3
+    )
+    AK = signed_fj.reshape(
+        # Reshape to the same shape as 
+        list(shape_gamma)+[-1] 
+    )
+    bK = signed_d.reshape(
+        # Reshape to the same shape as 
+        shape_gamma
+    )
+    return(AK, bK)
+
 def K_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
     '''
     Produces a dimensionless K operator that act on X by 
@@ -84,19 +138,7 @@ def K_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
     It cannot directly produce a scalar objective, but can be used 
     for constructing norms (L1, L2). 
     '''
-    # Here, we take advantage of the fj matrix already 
-    # implemented in CurrentPotentialSolve. 
-    # This matrix evaluates the current.
-    # fj's angles doesn't match cp.k()
-    K_angle_scale = (np.pi*2)**2/cpst.plasma_surface.nfp
-    AK = (-cpst.fj*K_angle_scale).reshape(
-        # Reshape to the same shape as 
-        list(cpst.winding_surface.gamma().shape)+[-1] 
-    )
-    bK = (cpst.d*K_angle_scale).reshape(
-        # Reshape to the same shape as 
-        cpst.winding_surface.gamma().shape
-    )
+    AK, bK = AK_helper(cpst)
     # To fill the part of ther operator representing
     # 2nd order coefficients
     AK_blank_square = np.zeros(
@@ -106,77 +148,27 @@ def K_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
         [AK_blank_square,                     AK[:, :, :, :, None]/current_scale],
         [np.zeros_like(AK)[:, :, :, None, :], bK[:, :, :, None, None]]
     ])
-    AK_operator = 0.5*(AK_operator+np.swapaxes(AK_operator, -2, -1))
+    AK_operator = (AK_operator+np.swapaxes(AK_operator, -2, -1))/2
     if normalize:
         AK_scale = avg_order_of_magnitude(AK_operator)
         AK_operator /= AK_scale
     return(AK_operator, AK_scale)
 
-# L2_unit: when True, multiplies with Jacobian so that the sum over the result 
-# is the integral of K^2 over the plasma surface.
-def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True, L2_unit=False):
-    AK = (-cpst.fj).reshape(
-        # Reshape to the same shape as 
-        list(cpst.winding_surface.gamma().shape)+[-1] 
-    )
-    bK = (cpst.d).reshape(
-        # Reshape to the same shape as 
-        cpst.winding_surface.gamma().shape
-    )
-    contig = np.ascontiguousarray
-    if cpst.winding_surface.stellsym:
-        ndofs_half = cpst.current_potential.num_dofs()
-    else:
-        ndofs_half = cpst.current_potential.num_dofs() // 2
-    m = cpst.current_potential.m[:ndofs_half]
-    n = cpst.current_potential.n[:ndofs_half]
-    phi_mesh, theta_mesh = np.meshgrid(
-        cpst.winding_surface.quadpoints_phi, 
-        cpst.winding_surface.quadpoints_theta, 
-        indexing='ij'
-    )
-    zeta_coil = np.ravel(phi_mesh)
-    theta_coil = np.ravel(theta_mesh)
-    dr_dzeta = cpst.winding_surface.gammadash1().reshape(-1, 3)
-    dr_dtheta = cpst.winding_surface.gammadash2().reshape(-1, 3)
-    G = cpst.current_potential.net_poloidal_current_amperes
-    I = cpst.current_potential.net_toroidal_current_amperes
-    normal_coil = cpst.winding_surface.normal().reshape(-1, 3)
-    bK, AK = sopp.winding_surface_field_K2_matrices(
-        contig(dr_dzeta), contig(dr_dtheta), contig(normal_coil), cpst.winding_surface.stellsym,
-        contig(zeta_coil), contig(theta_coil), cpst.ndofs, contig(m), contig(n), 
-        cpst.winding_surface.nfp, G, I
-    )
-    bK = bK[:bK.shape[0]//cpst.winding_surface.nfp]
-    AK = AK[:AK.shape[0]//cpst.winding_surface.nfp]
-    if L2_unit:
-        dzeta_coil = (
-            cpst.winding_surface.quadpoints_phi[1] 
-            - cpst.winding_surface.quadpoints_phi[0]
-        )
-        dtheta_coil = (
-            cpst.winding_surface.quadpoints_theta[1] 
-            - cpst.winding_surface.quadpoints_theta[0]
-        )
-        AK = AK * 2 * np.pi * np.sqrt(dzeta_coil * dtheta_coil)
-        bK = bK * 2 * np.pi * np.sqrt(dzeta_coil * dtheta_coil)
-    else:
-        normN_prime = np.linalg.norm(cpst.winding_surface.normal(), axis=-1)
-        # flaten
-        normN_prime = normN_prime.flatten()
-        normN_prime = normN_prime[:normN_prime.shape[0]//cpst.winding_surface.nfp]
-        AK = AK/np.sqrt(normN_prime)[:, None, None]*(np.pi * 2)
-        bK = bK/np.sqrt(normN_prime)[:, None]*(np.pi * 2)
+def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
+    '''
+    An operator that calculates the L2 norm of K.
+    '''
+    AK, bK = AK_helper(cpst)
     # To fill the part of ther operator representing
     # 2nd order coefficients
     AK_scaled = (AK/current_scale)
     ATA_K_scaled = np.matmul(np.swapaxes(AK_scaled, -1, -2),AK_scaled)
-    ATb_K_scaled = np.sum(AK_scaled*bK[:,:,None], axis=-2)
+    ATb_K_scaled = np.sum(AK_scaled*bK[:,:, :, None], axis=-2)
     bTb_K_scaled = np.sum(bK*bK, axis=-1)
     AK_l2_operator = np.block([
-        [ATA_K_scaled, -ATb_K_scaled[:, :, None]],
-        [-ATb_K_scaled[:, None, :], bTb_K_scaled[:, None, None]]
-    ])#.reshape((-1, n_dof+1, n_dof+1))
+        [ATA_K_scaled, -ATb_K_scaled[:, :, :, None]],
+        [-ATb_K_scaled[:, :, None, :], bTb_K_scaled[:, :, None, None]]
+    ])
     if normalize:
         AK_l2_scale = avg_order_of_magnitude(AK_l2_operator)
         AK_l2_operator /= AK_l2_scale
