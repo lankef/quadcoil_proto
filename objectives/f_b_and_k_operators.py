@@ -27,7 +27,12 @@ def f_B_operator_and_current_scale(cpst: CurrentPotentialSolve, normalize=True):
     '''
     # Equivalent to A in regcoil.
     normN = np.linalg.norm(cpst.plasma_surface.normal().reshape(-1, 3), axis=-1)
-    B_normal = cpst.gj/np.sqrt(normN[:, None])
+    # The matrices may not have been precomputed
+    try:
+        B_normal = cpst.gj/np.sqrt(normN[:, None])
+    except AttributeError:
+        cpst.B_matrix_and_rhs()
+        B_normal = cpst.gj/np.sqrt(normN[:, None])
     # Scaling factor to make X matrix dimensionless. 
     current_scale = avg_order_of_magnitude(B_normal)/avg_order_of_magnitude(cpst.b_e)
     ''' f_B operator '''
@@ -131,7 +136,8 @@ def K_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
     tr(AX). Note that this operator is linear in Phi, rather
     than X.
 
-    The K oeprator has shape (#grid per period, 3, nfod+1, ndof+1). 
+    The K operator has shape:
+    (n_phi, n_theta, 3, nfod+1, ndof+1). 
     tr(A[i, j, :, :]X) cannot gives the grid value of a K component
     in (R, phi, Z). 
 
@@ -166,8 +172,8 @@ def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
     ATb_K_scaled = np.sum(AK_scaled*bK[:,:, :, None], axis=-2)
     bTb_K_scaled = np.sum(bK*bK, axis=-1)
     AK_l2_operator = np.block([
-        [ATA_K_scaled, -ATb_K_scaled[:, :, :, None]],
-        [-ATb_K_scaled[:, :, None, :], bTb_K_scaled[:, :, None, None]]
+        [ATA_K_scaled, ATb_K_scaled[:, :, :, None]],
+        [ATb_K_scaled[:, :, None, :], bTb_K_scaled[:, :, None, None]]
     ])
     if normalize:
         AK_l2_scale = avg_order_of_magnitude(AK_l2_operator)
