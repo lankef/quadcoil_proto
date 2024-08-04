@@ -65,16 +65,17 @@ class QuadcoilBKTesting(unittest.TestCase):
         ))
 
         ''' Testing the K operator '''
-        K_operator, K_scale = f_b_and_k_operators.K_operator(cpst, current_scale)
+        K_operator, K_scale = f_b_and_k_operators.K_operator(cp, current_scale)
         test_K_2 = np.trace((K_operator @ scaled_x) * K_scale, axis1=-1, axis2=-2)
         test_K_1 = cp.K()
         assert(np.all(np.isclose(test_K_1, test_K_2)))
 
         ''' Testing K l2 operator '''
-        AK_l2_operator, AK_l2_scale = f_b_and_k_operators.K_l2_operator(cpst, current_scale)
-        test_K_l2_2 = np.trace((AK_l2_operator @ scaled_x) * AK_l2_scale, axis1=-1, axis2=-2)
-        test_K_l2_1 = np.sum(cp.K()**2, axis=-1)
+        AK_l2_operator, AK_l2_scale = f_b_and_k_operators.K_l2_operator(cp, current_scale)
+        test_K_l2_2 = np.trace((AK_l2_operator @ scaled_x)* AK_l2_scale, axis1=-1, axis2=-2)
+        test_K_l2_1 = np.sum(test_K_2**2, axis=-1)
         assert(np.all(np.isclose(test_K_l2_1, test_K_l2_2)))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -11,10 +11,15 @@ class QuadcoilHelperTesting(unittest.TestCase):
         dg2 = winding_surface.gammadash2()
         dg1 = winding_surface.gammadash1()
         grad1, grad2 = operator_helper.grad_helper(winding_surface)
+        # Are the dot product identites satisfied?
         assert(np.all(np.isclose(np.sum(dg2 * grad2, axis=-1), 1)))
         assert(np.all(np.isclose(np.sum(dg1 * grad1, axis=-1), 1)))
         assert(np.all(np.isclose(np.sum(dg2 * grad1, axis=-1), 0)))
         assert(np.all(np.isclose(np.sum(dg1 * grad2, axis=-1), 0)))
+        # Are the contravariant basis vectors perp to the unit normal?
+        unitnormal = winding_surface.unitnormal()
+        assert(np.all(np.isclose(np.sum(grad1 * unitnormal, axis=-1), 0)))
+        assert(np.all(np.isclose(np.sum(grad2 * unitnormal, axis=-1), 0)))
 
     def test_norm(self):
         winding_surface, _ = load('surfaces.json')

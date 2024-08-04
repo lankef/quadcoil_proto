@@ -4,8 +4,9 @@ import sys
 sys.path.insert(1,'..')
 import utils
 from utils import avg_order_of_magnitude, sin_or_cos
-from simsopt.field import CurrentPotentialSolve
+from simsopt.field import CurrentPotentialSolve, CurrentPotentialFourier
 import simsoptpp as sopp
+from operator_helper import diff_helper
 
 
 def f_B_operator_and_current_scale(cpst: CurrentPotentialSolve, normalize=True):
@@ -80,7 +81,7 @@ def K_operator_cylindrical(cpst: CurrentPotentialSolve, current_scale, normalize
         AK_operator_cylindrical /= AK_scale
     return(AK_operator_cylindrical, AK_scale)
 
-def AK_helper(cpst: CurrentPotentialSolve, L2_unit=False):
+def AK_helper(cp: CurrentPotentialFourier):
     '''
     We take advantage of the fj matrix already 
     implemented in CurrentPotentialSolve to calculate K.
@@ -94,23 +95,51 @@ def AK_helper(cpst: CurrentPotentialSolve, L2_unit=False):
     When L2_unit=False, the resulting matrices calculates
     the actual components of K.
     '''
+    winding_surface = cp.winding_surface
+    (
+        _, # trig_m_i_n_i,
+        trig_diff_m_i_n_i,
+        partial_phi,
+        partial_theta,
+        _, # partial_phi_phi,
+        _, # partial_phi_theta,
+        _, # partial_theta_theta,
+    ) = diff_helper(cp)
+    inv_normN_prime_2d = 1/np.linalg.norm(winding_surface.normal(), axis=-1)
+    dg1 = winding_surface.gammadash1()
+    dg2 = winding_surface.gammadash2()
+    G = cp.net_poloidal_current_amperes
+    I = cp.net_toroidal_current_amperes
+    AK = inv_normN_prime_2d[:, :, None, None] * (
+        dg2[:, :, :, None] * (trig_diff_m_i_n_i @ partial_phi)[:, :, None, :]
+        - dg1[:, :, :, None] * (trig_diff_m_i_n_i @ partial_theta)[:, :, None, :]
+    )
+    bK = inv_normN_prime_2d[:, :, None] * (
+        dg2 * G
+        - dg1 * I
+    )
+    return(AK, bK)
+    
+def AK_helper_legacy(cpst: CurrentPotentialSolve):
+    # Uses the fj matrix in cpst to calculate the
+    # K operator. May have some inconsistencies as of 
+    # Aug 2 2024 in robin_volpe.ipynb
     signed_fj = -cpst.fj
     signed_d = cpst.d
-    if not L2_unit:
-        dzeta_coil = (
-            cpst.winding_surface.quadpoints_phi[1] 
-            - cpst.winding_surface.quadpoints_phi[0]
-        )
-        dtheta_coil = (
-            cpst.winding_surface.quadpoints_theta[1] 
-            - cpst.winding_surface.quadpoints_theta[0]
-        )
-        normal_vec = cpst.winding_surface.normal()
-        normn = np.sqrt(np.sum(normal_vec**2, axis=-1)) # |N|
-        normn = normn.reshape(-1)
-        factor = (np.sqrt(dzeta_coil * dtheta_coil) * normn)**-1
-        signed_fj = signed_fj * factor[:, None, None]
-        signed_d = signed_d * factor[:, None]
+    dzeta_coil = (
+        cpst.winding_surface.quadpoints_phi[1] 
+        - cpst.winding_surface.quadpoints_phi[0]
+    )
+    dtheta_coil = (
+        cpst.winding_surface.quadpoints_theta[1] 
+        - cpst.winding_surface.quadpoints_theta[0]
+    )
+    normal_vec = cpst.winding_surface.normal()
+    normn = np.sqrt(np.sum(normal_vec**2, axis=-1)) # |N|
+    normn = normn.reshape(-1)
+    factor = (np.sqrt(dzeta_coil * dtheta_coil) * normn)**-1
+    signed_fj = signed_fj * factor[:, None, None]
+    signed_d = signed_d * factor[:, None]
     # test_K_2 = (
     #     -(cpst.fj @ cp.get_dofs() - cpst.d) 
     #     / 
@@ -160,11 +189,11 @@ def K_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
         AK_operator /= AK_scale
     return(AK_operator, AK_scale)
 
-def K_l2_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
+def K_l2_operator(cp: CurrentPotentialFourier, current_scale, normalize=True):
     '''
     An operator that calculates the L2 norm of K.
     '''
-    AK, bK = AK_helper(cpst)
+    AK, bK = AK_helper(cp)
     # To fill the part of ther operator representing
     # 2nd order coefficients
     AK_scaled = (AK/current_scale)

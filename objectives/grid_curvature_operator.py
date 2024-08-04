@@ -7,7 +7,7 @@ from utils import sin_or_cos
 # Import packages.
 import numpy as np
 from simsopt.field import CurrentPotentialFourier #, CurrentPotentialSolve
-from operator_helper import norm_helper, Kdash_helper
+from operator_helper import norm_helper, Kdash_helper, diff_helper
 
 def grid_curvature_operator(
     cp:CurrentPotentialFourier, 
@@ -43,15 +43,17 @@ def grid_curvature_operator(
         Kdash1_sv_op, 
         Kdash2_sv_op, 
         Kdash1_const,
-        Kdash2_const,
-        _, # trig_m_i_n_i
-        trig_diff_m_i_n_i,
-        partial_theta,
-        partial_phi,
-        _, # partial_theta_theta
-        _, # partial_phi_phi
-        _, # partial_theta_phi
+        Kdash2_const
     ) = Kdash_helper(cp, current_scale)
+    (
+        _, # trig_m_i_n_i,
+        trig_diff_m_i_n_i,
+        partial_phi,
+        partial_theta,
+        _, # partial_phi_phi,
+        _, # partial_phi_theta,
+        _, # partial_theta_theta,
+    ) = diff_helper(cp)
     
     ''' Pointwise product with partial r/partial phi or theta'''
 
