@@ -192,8 +192,21 @@ def K_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
 def K_l2_operator(cp: CurrentPotentialFourier, current_scale, normalize=True):
     '''
     An operator that calculates the L2 norm of K.
+    Shape: (n_phi (1 field period), n_theta, n_dof+1, n_dof+1)
     '''
     AK, bK = AK_helper(cp)
+    AK = AK[
+        :AK.shape[0]//cp.nfp,
+        :,
+        :,
+        :,
+    ]
+    # Take only one field period
+    bK = bK[
+        :bK.shape[0]//cp.nfp,
+        :,
+        :,
+    ]
     # To fill the part of ther operator representing
     # 2nd order coefficients
     AK_scaled = (AK/current_scale)
