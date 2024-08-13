@@ -54,7 +54,7 @@ def f_B_operator_and_current_scale(cpst: CurrentPotentialSolve, normalize=True):
         f_B_scale = 1
     return(f_B_x_operator, B_normal, current_scale, f_B_scale)
 
-def K_operator_cylindrical(cpst: CurrentPotentialSolve, current_scale, normalize=True):
+def K_operator_cylindrical(cp: CurrentPotentialFourier, current_scale, normalize=True):
     '''
     Produces a dimensionless K operator that act on X by 
     tr(AX). Note that this operator is linear in Phi, rather
@@ -68,7 +68,7 @@ def K_operator_cylindrical(cpst: CurrentPotentialSolve, current_scale, normalize
     for constructing norms (L1, L2). 
     '''
     AK_operator, _ = K_operator(
-        CurrentPotentialSolve=CurrentPotentialSolve, 
+        cp=cp, 
         current_scale=current_scale, 
         normalize=False
     )
@@ -159,7 +159,7 @@ def AK_helper_legacy(cpst: CurrentPotentialSolve):
     )
     return(AK, bK)
 
-def K_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
+def K_operator(cp: CurrentPotentialFourier, current_scale, normalize=True):
     '''
     Produces a dimensionless K operator that act on X by 
     tr(AX). Note that this operator is linear in Phi, rather
@@ -173,7 +173,7 @@ def K_operator(cpst: CurrentPotentialSolve, current_scale, normalize=True):
     It cannot directly produce a scalar objective, but can be used 
     for constructing norms (L1, L2). 
     '''
-    AK, bK = AK_helper(cpst)
+    AK, bK = AK_helper(cp)
     # To fill the part of ther operator representing
     # 2nd order coefficients
     AK_blank_square = np.zeros(

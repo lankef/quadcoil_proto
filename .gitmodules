@@ -1,0 +1,18 @@
+[submodule "thirdparty/pybind11"]
+	path = thirdparty/pybind11
+	url = https://github.com/pybind/pybind11.git
+[submodule "thirdparty/BIEST"]
+	path = thirdparty/BIEST
+	url = https://github.com/dmalhotra/BIEST.git
+[submodule "thirdparty/SCTL"]
+	path = thirdparty/SCTL
+	url = https://github.com/dmalhotra/SCTL.git
+[submodule "thirdparty/xtensor-python"]
+	path = thirdparty/xtensor-python
+	url = https://github.com/xtensor-stack/xtensor-python.git
+[submodule "thirdparty/xtensor"]
+	path = thirdparty/xtensor
+	url = https://github.com/xtensor-stack/xtensor.git
+[submodule "thirdparty/xtl"]
+	path = thirdparty/xtl
+	url = https://github.com/xtensor-stack/xtl.git
