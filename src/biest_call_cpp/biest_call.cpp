@@ -263,7 +263,7 @@ static void integrate_multi(
                 }
             }
             biop.Eval(U, F, nfp, Nt, Np); // evaluate potential
-            py::print("Integral #", k, "=", U[0]);
+            // py::print("Integral #", k, "=", U[0]); // printing the integration results
             result(k) = U[0];
         }
     }
@@ -288,7 +288,7 @@ static void integrate_multi(
                 }
             }
             biop.Eval(U, F, nfp, Nt, Np); // evaluate potential
-            py::print("Integral #", k, "=", U[0]);
+            // py::print("Integral #", k, "=", U[0]); // Printing the integration results
             result(Nsingle + k) = U[0];
         }
     }
