@@ -242,11 +242,9 @@ static void integrate_multi(
     constexpr int KER_DIM0 = 1;                                    // input degrees-of-freedom of kernel
     constexpr int KER_DIM1 = 1;                                    // output degrees-of-freedom of kernel
     Surface Svec(1);
-
     if (Nsingle != 0)
     {
         // Laplace single-layer kernel function
-        sctl::Vector<Real> F(Nt * Np), U;
         const auto kernel = biest::Laplace3D<Real>::FxU();
         biest::FieldPeriodBIOp<Real, DIM, KER_DIM0, KER_DIM1, 0> biop; // boundary integral operator
         Svec[0] = biop.BuildSurface(X, nfp, Nt, Np);                   // build surface object
@@ -254,6 +252,7 @@ static void integrate_multi(
         biop.SetupSingular(Svec, kernel, digits, nfp, Nt, Np, Nt, Np);
         for (int k = 0; k < Nsingle; k++)
         {
+            sctl::Vector<Real> F(Nt * Np), U;
             // initialize data F
             for (int i = 0; i < Nt; i++)
             {
@@ -263,7 +262,7 @@ static void integrate_multi(
                 }
             }
             biop.Eval(U, F, nfp, Nt, Np); // evaluate potential
-            // py::print("Integral #", k, "=", U[0]); // printing the integration results
+            py::print("Integral #", k, "=", U[0]); // printing the integration results
             result(k) = U[0];
         }
     }
@@ -271,7 +270,6 @@ static void integrate_multi(
     if (Ndouble != 0)
     {
         // Laplace double-layer kernel function
-        sctl::Vector<Real> F(Nt * Np), U;
         const auto kernel = biest::Laplace3D<Real>::DxU();
         biest::FieldPeriodBIOp<Real, DIM, KER_DIM0, KER_DIM1, 0> biop; // boundary integral operator
         Svec[0] = biop.BuildSurface(X, nfp, Nt, Np);                   // build surface object
@@ -279,6 +277,7 @@ static void integrate_multi(
         biop.SetupSingular(Svec, kernel, digits, nfp, Nt, Np, Nt, Np);
         for (int k = 0; k < Ndouble; k++)
         {
+            sctl::Vector<Real> F(Nt * Np), U;
             // initialize data F
             for (int i = 0; i < Nt; i++)
             {
@@ -288,7 +287,7 @@ static void integrate_multi(
                 }
             }
             biop.Eval(U, F, nfp, Nt, Np); // evaluate potential
-            // py::print("Integral #", k, "=", U[0]); // Printing the integration results
+            py::print("Integral #", k, "=", U[0]); // Printing the integration results
             result(Nsingle + k) = U[0];
         }
     }
