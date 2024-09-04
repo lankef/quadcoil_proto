@@ -250,9 +250,11 @@ static void integrate_multi(
         Svec[0] = biop.BuildSurface(X, nfp, Nt, Np);                   // build surface object
         // Expensive
         biop.SetupSingular(Svec, kernel, digits, nfp, Nt, Np, Nt, Np);
+        sctl::Vector<Real> F(Nt * Np);
+        // #pragma omp parallel for
         for (int k = 0; k < Nsingle; k++)
         {
-            sctl::Vector<Real> F(Nt * Np), U;
+            sctl::Vector<Real> U;
             // initialize data F
             for (int i = 0; i < Nt; i++)
             {
@@ -262,7 +264,7 @@ static void integrate_multi(
                 }
             }
             biop.Eval(U, F, nfp, Nt, Np); // evaluate potential
-            py::print("Integral #", k, "=", U[0]); // printing the integration results
+            // py::print("Integral #", k, "=", U[0]); // printing the integration results
             result(k) = U[0];
         }
     }
@@ -275,9 +277,11 @@ static void integrate_multi(
         Svec[0] = biop.BuildSurface(X, nfp, Nt, Np);                   // build surface object
         // Expensive
         biop.SetupSingular(Svec, kernel, digits, nfp, Nt, Np, Nt, Np);
+        sctl::Vector<Real> F(Nt * Np);
+        // #pragma omp parallel for
         for (int k = 0; k < Ndouble; k++)
         {
-            sctl::Vector<Real> F(Nt * Np), U;
+            sctl::Vector<Real> U;
             // initialize data F
             for (int i = 0; i < Nt; i++)
             {
@@ -287,7 +291,7 @@ static void integrate_multi(
                 }
             }
             biop.Eval(U, F, nfp, Nt, Np); // evaluate potential
-            py::print("Integral #", k, "=", U[0]); // Printing the integration results
+            // py::print("Integral #", k, "=", U[0]); // Printing the integration results
             result(Nsingle + k) = U[0];
         }
     }

@@ -4,6 +4,10 @@ project(biest_call LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Enable profiling
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pg")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pg")
+
 # Find Python and NumPy
 set(Python_FIND_STRATEGY LOCATION)
 find_package(Python REQUIRED COMPONENTS Interpreter Development NumPy)
@@ -26,6 +30,14 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/thirdparty/xtensor-python/)
 # Adding BIEST and SCTL as part of the current CMakeLists.txt
 include_directories(${CMAKE_SOURCE_DIR}/thirdparty/SCTL/include/)
 include_directories(${CMAKE_SOURCE_DIR}/thirdparty/BIEST/include/)
+
+# SCTL uses 
+set(SCTL_HAVE_BLAS ON)
+set(SCTL_HAVE_LAPACK ON)
+set(SCTL_HAVE_LIBMVEC ON)
+set(SCTL_HAVE_MPI ON)
+set(SCTL_HAVE_FFTW ON)
+# set(SCTL_HAVE_PVFMM ON)
 
 # Find packages
 find_package(pybind11 REQUIRED)
