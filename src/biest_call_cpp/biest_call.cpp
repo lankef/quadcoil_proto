@@ -9,6 +9,9 @@
 #include <xtensor/xarray.hpp>
 #include <xtensor-python/pyarray.hpp> // Numpy bindings
 
+
+// #include <gperftools/profiler.h> // Profiler
+
 typedef xt::pyarray<double> Array;
 typedef double Real;
 typedef sctl::Vector<biest::Surface<Real>> Surface;
@@ -61,27 +64,84 @@ static double test(bool single, double a, double b)
         }
     }
 
-    constexpr int KER_DIM0 = 1; // input degrees-of-freedom of kernel
-    constexpr int KER_DIM1 = 1; // output degrees-of-freedom of kernel
+    constexpr int KER_DIM0 = 1;                                    // input degrees-of-freedom of kernel
+    constexpr int KER_DIM1 = 1;                                    // output degrees-of-freedom of kernel
     biest::FieldPeriodBIOp<Real, DIM, KER_DIM0, KER_DIM1, 0> biop; // boundary integral operator
     Surface Svec(1);
     Svec[0] = biop.BuildSurface(X, nfp, Nt, Np); // build surface object
 
-    if (single){
-        const auto kernel = biest::Laplace3D<Real>::FxU(); // Laplace single-layer kernel function
-        biop.SetupSingular(Svec, kernel, digits, nfp, Nt, Np, Nt, Np); // initialize biop
-    } else {
-        const auto kernel = biest::Laplace3D<Real>::DxU(); // Laplace double-layer kernel function
+    if (single)
+    {
+        const auto kernel = biest::Laplace3D<Real>::FxU();             // Laplace single-layer kernel function
         biop.SetupSingular(Svec, kernel, digits, nfp, Nt, Np, Nt, Np); // initialize biop
     }
-    
-    biop.Eval(U, F, nfp, Nt, Np);                                  // evaluate potential
+    else
+    {
+        const auto kernel = biest::Laplace3D<Real>::DxU();             // Laplace double-layer kernel function
+        biop.SetupSingular(Svec, kernel, digits, nfp, Nt, Np, Nt, Np); // initialize biop
+    }
+
+    biop.Eval(U, F, nfp, Nt, Np); // evaluate potential
 
     WriteVTK("F", Svec, F); // visualize F
     WriteVTK("U", Svec, U); // visualize U
     double out = U[0];
     return out;
 }
+
+static double test1000(bool single)
+{
+    constexpr int DIM = 3; // dimensions of coordinate space
+    const int digits = 10; // number of digits of accuracy requested
+
+    const int nfp = 1, Nt = 70, Np = 20;
+    sctl::Vector<Real> X(DIM * Nt * Np), F(Nt * Np);
+    for (int i = 0; i < Nt; i++)
+    { // initialize data X, F
+        for (int j = 0; j < Np; j++)
+        {
+            const Real phi = 2 * sctl::const_pi<Real>() * i / Nt;
+            const Real theta = 2 * sctl::const_pi<Real>() * j / Np;
+
+            const Real R = 1 + 0.25 * sctl::cos<Real>(theta);
+            const Real x = R * sctl::cos<Real>(phi);
+            const Real y = R * sctl::sin<Real>(phi);
+            const Real z = 0.25 * sctl::sin<Real>(theta);
+
+            X[(0 * Nt + i) * Np + j] = x;
+            X[(1 * Nt + i) * Np + j] = y;
+            X[(2 * Nt + i) * Np + j] = z;
+            F[i * Np + j] = x + y + z;
+        }
+    }
+
+    constexpr int KER_DIM0 = 1;                                    // input degrees-of-freedom of kernel
+    constexpr int KER_DIM1 = 1;                                    // output degrees-of-freedom of kernel
+    biest::FieldPeriodBIOp<Real, DIM, KER_DIM0, KER_DIM1, 0> biop; // boundary integral operator
+    Surface Svec(1);
+    Svec[0] = biop.BuildSurface(X, nfp, Nt, Np); // build surface object
+
+    if (single)
+    {
+        const auto kernel = biest::Laplace3D<Real>::FxU();             // Laplace single-layer kernel function
+        biop.SetupSingular(Svec, kernel, digits, nfp, Nt, Np, Nt, Np); // initialize biop
+    }
+    else
+    {
+        const auto kernel = biest::Laplace3D<Real>::DxU();             // Laplace double-layer kernel function
+        biop.SetupSingular(Svec, kernel, digits, nfp, Nt, Np, Nt, Np); // initialize biop
+    }
+    double out;
+#pragma omp parallel for
+    for (int i = 0; i < 1000; i++)
+    {
+        sctl::Vector<Real> U;
+        biop.Eval(U, F, nfp, Nt, Np); // evaluate potential
+        out = U[0];
+    }
+    return out;
+}
+
 /*
 xt::pyarray<double> &gamma:
 r(theta, zeta) of the surface, corresponds to Surface.gamma() in simsopt.
@@ -170,6 +230,7 @@ static void integrate_multi(
     int digits,
     int nfp)
 {
+    // ProfilerStart("profile.prof");
     constexpr int DIM = 3; // dimensions of coordinate space
 
     // Because constructing the integral is costly, 
@@ -251,7 +312,7 @@ static void integrate_multi(
         // Expensive
         biop.SetupSingular(Svec, kernel, digits, nfp, Nt, Np, Nt, Np);
         sctl::Vector<Real> F(Nt * Np);
-        // #pragma omp parallel for
+        #pragma omp parallel for
         for (int k = 0; k < Nsingle; k++)
         {
             sctl::Vector<Real> U;
@@ -278,7 +339,7 @@ static void integrate_multi(
         // Expensive
         biop.SetupSingular(Svec, kernel, digits, nfp, Nt, Np, Nt, Np);
         sctl::Vector<Real> F(Nt * Np);
-        // #pragma omp parallel for
+        #pragma omp parallel for
         for (int k = 0; k < Ndouble; k++)
         {
             sctl::Vector<Real> U;
@@ -295,6 +356,7 @@ static void integrate_multi(
             result(Nsingle + k) = U[0];
         }
     }
+    // ProfilerStop();
 }
 
 static bool is_zero_d(xt::pyarray<double> &arr){
@@ -309,6 +371,7 @@ PYBIND11_MODULE(biest_call, m)
     m.def("is_zero_d", is_zero_d, "Can scalars be passed as 0d arrays");
     m.def("edit_2x3_pyarray", edit_2x3_pyarray, "Test that creates arrays");
     m.def("test", test, "Testing BIEST");
+    m.def("test1000", test1000, "Testing 100 BIEST calls. Test the hypothesis that reading entries from a numpy array one by one is slowing it down");
     m.def("integrate_scalar", integrate_scalar, "Integrating a scalar function using BIEST");
     m.def("integrate_multi", integrate_multi, "Integrating a scalar function using BIEST");
 }
