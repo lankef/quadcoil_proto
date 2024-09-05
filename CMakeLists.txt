@@ -1,12 +1,8 @@
 cmake_minimum_required(VERSION 3.14)
 project(biest_call LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# Enable profiling
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pg")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pg")
 
 # Find Python and NumPy
 set(Python_FIND_STRATEGY LOCATION)
@@ -31,20 +27,71 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/thirdparty/xtensor-python/)
 include_directories(${CMAKE_SOURCE_DIR}/thirdparty/SCTL/include/)
 include_directories(${CMAKE_SOURCE_DIR}/thirdparty/BIEST/include/)
 
-# SCTL uses 
-set(SCTL_HAVE_BLAS ON)
-set(SCTL_HAVE_LAPACK ON)
-set(SCTL_HAVE_LIBMVEC ON)
-set(SCTL_HAVE_MPI ON)
-set(SCTL_HAVE_FFTW ON)
-# set(SCTL_HAVE_PVFMM ON)
-
 # Find packages
 find_package(pybind11 REQUIRED)
 find_package(OpenMP REQUIRED)
 
+# Find optional packages
+find_package(BLAS REQUIRED)
+find_package(LAPACK)
+# Not available on mac.
+# find_library(MVEC_LIB mvec)
+# Has missing /openmpi-4.1.2-pkgs/fftw-3.3.10/lib/cmake/fftw3/FFTW3LibraryDepends.cmake 
+# on the pppl cluster
+# find_package(FFTW3)
+
+# Compiler flags 
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+# Compiler flags
+# Note to self: the compiler flag must be set AFTER finding OpenMP.
+set(COMMON_FLAGS "-fopenmp -Wall -Wfloat-conversion -DSCTL_GLOBAL_MEM_BUFF=0 -DSCTL_PROFILE=5 -DSCTL_VERBOSE -DSCTL_SIG_HANDLER")
+set(OPTIONAL_LIB_FLAGS "-lblas -DSCTL_HAVE_BLAS -llapack -DSCTL_HAVE_LAPACK")
+# FFTW cannot be found reliably using find_package on mac or the PPPL cluster.
+# We'll fix this later.
+set(MVEC_FLAGS "-DSCTL_HAVE_LIBMVEC")
+set(FFTW_FLAGS "-lfftw3_omp -DSCTL_FFTW_THREADS -lfftw3 -DSCTL_HAVE_FFTW -lfftw3f -DSCTL_HAVE_FFTWF -lfftw3l -DSCTL_HAVE_FFTWL")
+# Optional: Debug flags
+set(DEBUG_FLAGS "-O0 -fsanitize=address,leak,undefined,pointer-compare,pointer-subtract,float-divide-by-zero,float-cast-overflow -fno-sanitize-recover=all -fstack-protector -DSCTL_MEMDEBUG")
+# Optional: Release flags
+set(RELEASE_FLAGS "-O3 -march=native -DNDEBUG")
+# Platform-specific flags
+if(APPLE)
+    set(PLATFORM_FLAGS "-g -rdynamic -Wl,-no_pie") # for stack trace on Mac
+else()
+    set(PLATFORM_FLAGS "-gdwarf-4 -g -rdynamic")   # for stack trace on other OS
+endif()
+# Combine flags based on the build type
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(CMAKE_CXX_FLAGS "${COMMON_FLAGS} ${DEBUG_FLAGS} ${PLATFORM_FLAGS} ${OPTIONAL_LIB_FLAGS}")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address")
+    set(CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fsanitize=address")
+else()
+    set(CMAKE_CXX_FLAGS "${COMMON_FLAGS} ${RELEASE_FLAGS} ${PLATFORM_FLAGS} ${OPTIONAL_LIB_FLAGS}")
+endif()
+
 # Define your extension
-# add_library(biest_call MODULE src/biest_call_cpp/biest_call.cpp)
 pybind11_add_module(biest_call src/biest_call_cpp/biest_call.cpp)
-target_link_libraries(biest_call PRIVATE OpenMP::OpenMP_CXX xtensor xtensor-python pybind11::module)
-target_include_directories(biest_call PRIVATE ${Python_INCLUDE_DIRS} ${Python_NumPy_INCLUDE_DIRS})
+
+target_link_libraries(biest_call PRIVATE 
+    OpenMP::OpenMP_CXX 
+    xtensor 
+    xtensor-python 
+    pybind11::module
+    blas
+    lapack 
+)
+# Not available on mac
+# target_link_libraries(biest_call PRIVATE ${MVEC_LIB})
+# Add back later when we fix it
+# target_link_libraries(biest_call PRIVATE 
+#     fftw3 
+#     fftw3_omp 
+#     fftw3f 
+#     fftw3l 
+# )
+target_include_directories(biest_call PRIVATE 
+    ${Python_INCLUDE_DIRS} 
+    ${Python_NumPy_INCLUDE_DIRS}
+)
