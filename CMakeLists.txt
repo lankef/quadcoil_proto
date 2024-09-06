@@ -40,36 +40,26 @@ find_package(LAPACK)
 # on the pppl cluster
 # find_package(FFTW3)
 
-# Compiler flags 
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
-endif()
+# fastmath
+# set(ENABLE_FAST_MATH ON)
+
 # Compiler flags
 # Note to self: the compiler flag must be set AFTER finding OpenMP.
-set(COMMON_FLAGS "-fopenmp -Wall -Wfloat-conversion -DSCTL_GLOBAL_MEM_BUFF=0 -DSCTL_PROFILE=5 -DSCTL_VERBOSE -DSCTL_SIG_HANDLER")
+set(COMMON_FLAGS "${COMMON_FLAGS} -fopenmp")
+# set(COMMON_FLAGS "${COMMON_FLAGS} -DSCTL_GLOBAL_MEM_BUFF=0")
+# set(COMMON_FLAGS "-Wall -Wfloat-conversion") # Optional: Release flags
 set(OPTIONAL_LIB_FLAGS "-lblas -DSCTL_HAVE_BLAS -llapack -DSCTL_HAVE_LAPACK")
 # FFTW cannot be found reliably using find_package on mac or the PPPL cluster.
 # We'll fix this later.
-set(MVEC_FLAGS "-DSCTL_HAVE_LIBMVEC")
-set(FFTW_FLAGS "-lfftw3_omp -DSCTL_FFTW_THREADS -lfftw3 -DSCTL_HAVE_FFTW -lfftw3f -DSCTL_HAVE_FFTWF -lfftw3l -DSCTL_HAVE_FFTWL")
+# set(MVEC_FLAGS "-DSCTL_HAVE_LIBMVEC")
+# set(FFTW_FLAGS "-lfftw3_omp -DSCTL_FFTW_THREADS -lfftw3 -DSCTL_HAVE_FFTW -lfftw3f -DSCTL_HAVE_FFTWF -lfftw3l -DSCTL_HAVE_FFTWL")
 # Optional: Debug flags
 set(DEBUG_FLAGS "-O0 -fsanitize=address,leak,undefined,pointer-compare,pointer-subtract,float-divide-by-zero,float-cast-overflow -fno-sanitize-recover=all -fstack-protector -DSCTL_MEMDEBUG")
-# Optional: Release flags
-set(RELEASE_FLAGS "-O3 -march=native -DNDEBUG")
-# Platform-specific flags
-if(APPLE)
-    set(PLATFORM_FLAGS "-g -rdynamic -Wl,-no_pie") # for stack trace on Mac
-else()
-    set(PLATFORM_FLAGS "-gdwarf-4 -g -rdynamic")   # for stack trace on other OS
-endif()
-# Combine flags based on the build type
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set(CMAKE_CXX_FLAGS "${COMMON_FLAGS} ${DEBUG_FLAGS} ${PLATFORM_FLAGS} ${OPTIONAL_LIB_FLAGS}")
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address")
-    set(CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fsanitize=address")
-else()
-    set(CMAKE_CXX_FLAGS "${COMMON_FLAGS} ${RELEASE_FLAGS} ${PLATFORM_FLAGS} ${OPTIONAL_LIB_FLAGS}")
-endif()
+set(RELEASE_FLAGS "-O3 -DNDEBUG")
+# set(RELEASE_FLAGS "-O3 -march=native -DNDEBUG")
+# Setting flags
+set(CMAKE_CXX_FLAGS "${COMMON_FLAGS} ${RELEASE_FLAGS} ${PLATFORM_FLAGS} ${OPTIONAL_LIB_FLAGS}")
+
 
 # Define your extension
 pybind11_add_module(biest_call src/biest_call_cpp/biest_call.cpp)
