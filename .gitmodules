@@ -4,9 +4,6 @@
 [submodule "thirdparty/BIEST"]
 	path = thirdparty/BIEST
 	url = https://github.com/dmalhotra/BIEST.git
-[submodule "thirdparty/SCTL"]
-	path = thirdparty/SCTL
-	url = https://github.com/dmalhotra/SCTL.git
 [submodule "thirdparty/xtensor-python"]
 	path = thirdparty/xtensor-python
 	url = https://github.com/xtensor-stack/xtensor-python.git
