@@ -24,7 +24,7 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/thirdparty/xtensor/)
 add_subdirectory(${CMAKE_SOURCE_DIR}/thirdparty/xtensor-python/)
 
 # Adding BIEST and SCTL as part of the current CMakeLists.txt
-include_directories(${CMAKE_SOURCE_DIR}/thirdparty/SCTL/include/)
+include_directories(${CMAKE_SOURCE_DIR}/thirdparty/BIEST/extern/SCTL/include/)
 include_directories(${CMAKE_SOURCE_DIR}/thirdparty/BIEST/include/)
 
 # Find packages
