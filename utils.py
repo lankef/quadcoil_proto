@@ -37,7 +37,7 @@ def gen_conv_winding_surface(plasma_surface, d_expand):
     gamma_R = np.linalg.norm([gamma[:,:,0], gamma[:,:,1]], axis=0)
     gamma_Z = gamma[:,:,2]
     gamma_new = np.zeros_like(gamma)
-
+    
     for i_phi in range(gamma.shape[0]):
         phi_i = winding_surface.quadpoints_phi[i_phi]
         cross_sec_R_i = gamma_R[i_phi]
@@ -52,11 +52,14 @@ def gen_conv_winding_surface(plasma_surface, d_expand):
         # Obtaining vertices
         vertices_R_i = cross_sec_R_i[vertices_i]
         vertices_Z_i = cross_sec_Z_i[vertices_i]
-
+        # Temporarily center the cross section.
+        # For centering the theta=0 curve to be along 
+        # the projection of the axis to the outboard side.
+        Z_center_i = np.average(vertices_Z_i)
+        vertices_Z_i = vertices_Z_i - Z_center_i
         # Create periodic array for interpolation
         vertices_R_periodic_i = np.append(vertices_R_i, vertices_R_i[0])
         vertices_Z_periodic_i = np.append(vertices_Z_i, vertices_Z_i[0])
-
         # Parameterize the series of vertices with 
         # arc length
         delta_R = np.diff(vertices_R_periodic_i)
@@ -65,35 +68,33 @@ def gen_conv_winding_surface(plasma_surface, d_expand):
         arc_length = np.cumsum(segment_length)
         arc_length_periodic = np.concatenate(([0], arc_length))
         arc_length_periodic_norm = arc_length_periodic/arc_length_periodic[-1]
-
         # Interpolate
         spline_i = CubicSpline(
             arc_length_periodic_norm, 
             np.array([vertices_R_periodic_i, vertices_Z_periodic_i]).T,
             bc_type='periodic'
         )
-
+        # Calculating the phase shift in quadpoints_theta needed 
+        # to center the theta=0 point to the intersection between
+        # the Z=0 plane and the ourboard of the winding surface.
+        Z_roots = spline_i.roots(extrapolate=False)[-1]
+        root_RZ_i = spline_i(Z_roots)
+        root_R_i = root_RZ_i[:, 0]
+        # Choose the outboard root as theta=0
+        phase_shift = Z_roots[np.argmax(root_R_i)]
         # Re-calculate R and Z from uniformly spaced theta
-        conv_gamma_RZ_i = spline_i(winding_surface.quadpoints_theta)
+        conv_gamma_RZ_i = spline_i(winding_surface.quadpoints_theta + phase_shift)
         conv_gamma_R_i = conv_gamma_RZ_i[:, 0]
         conv_gamma_Z_i = conv_gamma_RZ_i[:, 1]
-
-        # The starting point of each contour directly impacts the 
-        # smoothness of the surface in the toroidal direction.
-        # We find the point with Z coord closest to the centroid of the cross section
-        # on the outboard side.
-        R_center_i = np.average(conv_gamma_R_i)
-        Z_center_i = np.average(conv_gamma_Z_i)
-        Z_outboard_i = np.where(conv_gamma_R_i>R_center_i, conv_gamma_Z_i, np.nan)
-
-        roll_i = np.nanargmin(np.abs(Z_outboard_i - Z_center_i))
-        conv_gamma_R_i = np.roll(conv_gamma_R_i, -roll_i)
-        conv_gamma_Z_i = np.roll(conv_gamma_Z_i, -roll_i)
+        # Remove the temporary offset introduced earlier
+        conv_gamma_Z_i = conv_gamma_Z_i + Z_center_i
+        # Calculate X and Y
         conv_gamma_X_i = conv_gamma_R_i*np.cos(phi_i*np.pi*2)
         conv_gamma_Y_i = conv_gamma_R_i*np.sin(phi_i*np.pi*2)
         gamma_new[i_phi, :, 0] = conv_gamma_X_i
         gamma_new[i_phi, :, 1] = conv_gamma_Y_i
         gamma_new[i_phi, :, 2] = conv_gamma_Z_i
+
     # Fitting to XYZ tensor fourier surface
     winding_surface_new = SurfaceXYZTensorFourier( 
         nfp=winding_surface.nfp,
@@ -118,6 +119,7 @@ def gen_conv_winding_surface(plasma_surface, d_expand):
     )
     winding_surface_out.set_dofs(winding_surface_new.get_dofs())
     return(winding_surface_out)
+
 # Assumes that source_surface only contains 1 field period!
 def gen_winding_surface(source_surface, d_expand):
     # Expanding plasma surface to winding surface
