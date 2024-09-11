@@ -60,7 +60,7 @@ def K_operator_cylindrical(cp: CurrentPotentialFourier, current_scale, normalize
     tr(AX). Note that this operator is linear in Phi, rather
     than X.
 
-    The K oeprator has shape (#grid per period, 3, nfod+1, ndof+1). 
+    The K operator has shape (#grid per period, 3, nfod+1, ndof+1). 
     tr(A[i, j, :, :]X) cannot gives the grid value of a K component
     in (R, phi, Z). 
 
@@ -73,7 +73,7 @@ def K_operator_cylindrical(cp: CurrentPotentialFourier, current_scale, normalize
         normalize=False
     )
     AK_operator_cylindrical = utils.project_field_operator_cylindrical(
-        cp=cpst.current_potential,
+        cp=cp,
         operator=AK_operator
     )
     if normalize:
@@ -166,7 +166,7 @@ def K_operator(cp: CurrentPotentialFourier, current_scale, normalize=True):
     than X.
 
     The K operator has shape:
-    (n_phi, n_theta, 3, nfod+1, ndof+1). 
+    (n_phi, n_theta, 3, ndof+1, ndof+1). 
     tr(A[i, j, :, :]X) cannot gives the grid value of a K component
     in (R, phi, Z). 
 

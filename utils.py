@@ -37,7 +37,7 @@ def gen_conv_winding_surface(plasma_surface, d_expand):
     gamma_R = np.linalg.norm([gamma[:,:,0], gamma[:,:,1]], axis=0)
     gamma_Z = gamma[:,:,2]
     gamma_new = np.zeros_like(gamma)
-    
+
     for i_phi in range(gamma.shape[0]):
         phi_i = winding_surface.quadpoints_phi[i_phi]
         cross_sec_R_i = gamma_R[i_phi]
@@ -155,46 +155,50 @@ def gen_winding_surface(source_surface, d_expand):
 
     return(winding_surface)
 
-
 ''' Operator projection '''
 def project_field_operator_coord(
     operator, 
     unit1, unit2, unit3,
     one_field_period, nfp):
     '''
-    Project a (n_phi, n_theta, 3, ndof, ndof) in a given basis (unit1, unit2, unit3) 
-    with shape (n_phi, n_theta, 3).a
+    Project a (n_phi, n_theta, 3, <shape>) array in a given basis (unit1, unit2, unit3) 
+    with shape (n_phi, n_theta, 3). 
+    Outputs: (n_phi, n_theta, 3, <shape>)
+    Sample the first field period when one_field_period is True.
     '''
-    
+    # Memorizing shape of the last dimensions of the array
+    len_phi = operator.shape[0]
+    len_theta = operator.shape[1]
+    operator_shape_rest = list(operator.shape[3:])
+    operator_reshaped = operator.reshape((len_phi, len_theta, 3, -1))
     # Calculating components
     # shape of operator is 
     # (n_grid_phi, n_grid_theta, 3, n_dof, n_dof)
     # We take the dot product between K and unit vectors.
-    operator_1 = np.sum(unit1[:,:,:,None,None]*operator, axis=2)
-    operator_2 = np.sum(unit2[:,:,:,None,None]*operator, axis=2)
-    operator_n = np.sum(unit3[:,:,:,None,None]*operator, axis=2)
+    operator_1 = np.sum(unit1[:,:,:,None]*operator_reshaped, axis=2)
+    operator_2 = np.sum(unit2[:,:,:,None]*operator_reshaped, axis=2)
+    operator_n = np.sum(unit3[:,:,:,None]*operator_reshaped, axis=2)
     
     if one_field_period:
         # The X, Y, Z components are not nfp-periodic, but the surface components are.
-        len_phi = operator.shape[0]
         operator_1_nfp = operator_1[:len_phi//nfp,:,:,:]
         operator_2_nfp = operator_2[:len_phi//nfp,:,:,:]
         operator_n_nfp = operator_n[:len_phi//nfp,:,:,:]
 
-    n_dof = operator.shape[-1]
-    operator_1_nfp_flat = operator_1_nfp.reshape((-1,n_dof,n_dof))
-    operator_2_nfp_flat = operator_2_nfp.reshape((-1,n_dof,n_dof))
-    operator_n_nfp_flat = operator_n_nfp.reshape((-1,n_dof,n_dof))
-    operator_comp_list = np.stack([
-        operator_1_nfp_flat,
-        operator_2_nfp_flat,
-        operator_n_nfp_flat
-    ], axis=1)
-    return(operator_comp_list)
+    operator_1_nfp_recovered = operator_1_nfp.reshape([len_phi, len_theta] + operator_shape_rest)
+    operator_2_nfp_recovered = operator_2_nfp.reshape([len_phi, len_theta] + operator_shape_rest)
+    operator_n_nfp_recovered = operator_n_nfp.reshape([len_phi, len_theta] + operator_shape_rest)
+    operator_comp_arr = np.stack([
+        operator_1_nfp_recovered,
+        operator_2_nfp_recovered,
+        operator_n_nfp_recovered
+    ], axis=2)
+    return(operator_comp_arr)
+
 
 def project_field_operator_cylindrical(
         cp:CurrentPotentialFourier, 
-        operator,
+        operator
     ):
     # Converting x, y unit to 
     r_unit = cp.winding_surface.gamma().copy()

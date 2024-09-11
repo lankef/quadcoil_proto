@@ -118,38 +118,6 @@ def grid_curvature_operator(
 
     return(K_dot_grad_K_operator/current_scale**2)
 
-def grid_curvature_operator_pol_n_binorm(
-    cp:CurrentPotentialFourier, 
-    current_scale,
-    single_value_only:bool=True):
-    '''
-    Calculates curvature component along the 
-    poloidal (dr/dtheta)
-    normal (n)
-    and binormal (dr/dtheta x n)
-    directions
-    '''
-    ws_gammadash2 = cp.winding_surface.gammadash2() # Partial r partial theta
-    ws_normal = cp.winding_surface.normal()
-    ws_gammadash2_unit = ws_gammadash2/np.linalg.norm(ws_gammadash2, axis=2)[:,:,None]
-    ws_normal_unit = ws_normal/np.linalg.norm(ws_normal, axis=2)[:,:,None]
-    binorm_unit = np.cross(
-        ws_gammadash2_unit,
-        ws_normal_unit,
-    )
-    return(
-        grid_curvature_operator_project(
-            cp, 
-            unit1=ws_gammadash2_unit, 
-            unit2=ws_normal_unit, 
-            unit3=binorm_unit,
-            current_scale=current_scale,
-            one_field_period=True,
-            single_value_only=single_value_only,
-            L2_unit=False,
-        )
-    )
-
 def grid_curvature_operator_cylindrical(
         cp:CurrentPotentialFourier, 
         current_scale,
@@ -165,7 +133,7 @@ def grid_curvature_operator_cylindrical(
         current_scale=current_scale,
         L2_unit=False
     )
-    out = utils.project_field_operator_cylindrical(
+    out = utils.project_arr_cylindrical(
         cp=cp, 
         operator=K_dot_grad_K,
     )
@@ -175,4 +143,36 @@ def grid_curvature_operator_cylindrical(
     else:
         out_scale = 1
     return(out, out_scale)
+
+# def grid_curvature_operator_pol_n_binorm(
+#     cp:CurrentPotentialFourier, 
+#     current_scale,
+#     single_value_only:bool=True):
+#     '''
+#     Calculates curvature component along the 
+#     poloidal (dr/dtheta)
+#     normal (n)
+#     and binormal (dr/dtheta x n)
+#     directions
+#     '''
+#     ws_gammadash2 = cp.winding_surface.gammadash2() # Partial r partial theta
+#     ws_normal = cp.winding_surface.normal()
+#     ws_gammadash2_unit = ws_gammadash2/np.linalg.norm(ws_gammadash2, axis=2)[:,:,None]
+#     ws_normal_unit = ws_normal/np.linalg.norm(ws_normal, axis=2)[:,:,None]
+#     binorm_unit = np.cross(
+#         ws_gammadash2_unit,
+#         ws_normal_unit,
+#     )
+#     return(
+#         utils.project_arr_cylindrical(
+#             unit1=ws_gammadash2_unit, 
+#             unit2=ws_normal_unit, 
+#             unit3=binorm_unit,
+#             current_scale=current_scale,
+#             one_field_period=True,
+#             single_value_only=single_value_only,
+#             L2_unit=False,
+#         )
+#     )
+
     
