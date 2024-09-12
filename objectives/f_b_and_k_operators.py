@@ -72,7 +72,7 @@ def K_operator_cylindrical(cp: CurrentPotentialFourier, current_scale, normalize
         current_scale=current_scale, 
         normalize=False
     )
-    AK_operator_cylindrical = utils.project_field_operator_cylindrical(
+    AK_operator_cylindrical = utils.project_arr_cylindrical(
         cp=cp,
         operator=AK_operator
     )
@@ -120,45 +120,6 @@ def AK_helper(cp: CurrentPotentialFourier):
     )
     return(AK, bK)
     
-def AK_helper_legacy(cpst: CurrentPotentialSolve):
-    # Uses the fj matrix in cpst to calculate the
-    # K operator. May have some inconsistencies as of 
-    # Aug 2 2024 in robin_volpe.ipynb
-    signed_fj = -cpst.fj
-    signed_d = cpst.d
-    dzeta_coil = (
-        cpst.winding_surface.quadpoints_phi[1] 
-        - cpst.winding_surface.quadpoints_phi[0]
-    )
-    dtheta_coil = (
-        cpst.winding_surface.quadpoints_theta[1] 
-        - cpst.winding_surface.quadpoints_theta[0]
-    )
-    normal_vec = cpst.winding_surface.normal()
-    normn = np.sqrt(np.sum(normal_vec**2, axis=-1)) # |N|
-    normn = normn.reshape(-1)
-    factor = (np.sqrt(dzeta_coil * dtheta_coil) * normn)**-1
-    signed_fj = signed_fj * factor[:, None, None]
-    signed_d = signed_d * factor[:, None]
-    # test_K_2 = (
-    #     -(cpst.fj @ cp.get_dofs() - cpst.d) 
-    #     / 
-    # )
-    shape_gamma = (
-        len(cpst.winding_surface.quadpoints_phi),
-        len(cpst.winding_surface.quadpoints_theta),
-        3
-    )
-    AK = signed_fj.reshape(
-        # Reshape to the same shape as 
-        list(shape_gamma)+[-1] 
-    )
-    bK = signed_d.reshape(
-        # Reshape to the same shape as 
-        shape_gamma
-    )
-    return(AK, bK)
-
 def K_operator(cp: CurrentPotentialFourier, current_scale, normalize=True):
     '''
     Produces a dimensionless K operator that act on X by 

@@ -156,10 +156,9 @@ def gen_winding_surface(source_surface, d_expand):
     return(winding_surface)
 
 ''' Operator projection '''
-def project_field_operator_coord(
+def project_arr_coord(
     operator, 
-    unit1, unit2, unit3,
-    one_field_period, nfp):
+    unit1, unit2, unit3):
     '''
     Project a (n_phi, n_theta, 3, <shape>) array in a given basis (unit1, unit2, unit3) 
     with shape (n_phi, n_theta, 3). 
@@ -177,28 +176,22 @@ def project_field_operator_coord(
     # We take the dot product between K and unit vectors.
     operator_1 = np.sum(unit1[:,:,:,None]*operator_reshaped, axis=2)
     operator_2 = np.sum(unit2[:,:,:,None]*operator_reshaped, axis=2)
-    operator_n = np.sum(unit3[:,:,:,None]*operator_reshaped, axis=2)
-    
-    if one_field_period:
-        # The X, Y, Z components are not nfp-periodic, but the surface components are.
-        operator_1_nfp = operator_1[:len_phi//nfp,:,:,:]
-        operator_2_nfp = operator_2[:len_phi//nfp,:,:,:]
-        operator_n_nfp = operator_n[:len_phi//nfp,:,:,:]
+    operator_3 = np.sum(unit3[:,:,:,None]*operator_reshaped, axis=2)
 
-    operator_1_nfp_recovered = operator_1_nfp.reshape([len_phi, len_theta] + operator_shape_rest)
-    operator_2_nfp_recovered = operator_2_nfp.reshape([len_phi, len_theta] + operator_shape_rest)
-    operator_n_nfp_recovered = operator_n_nfp.reshape([len_phi, len_theta] + operator_shape_rest)
+    operator_1_nfp_recovered = operator_1.reshape([len_phi, len_theta] + operator_shape_rest)
+    operator_2_nfp_recovered = operator_2.reshape([len_phi, len_theta] + operator_shape_rest)
+    operator_3_nfp_recovered = operator_3.reshape([len_phi, len_theta] + operator_shape_rest)
     operator_comp_arr = np.stack([
         operator_1_nfp_recovered,
         operator_2_nfp_recovered,
-        operator_n_nfp_recovered
+        operator_3_nfp_recovered
     ], axis=2)
     return(operator_comp_arr)
 
 
-def project_field_operator_cylindrical(
+def project_arr_cylindrical(
         cp:CurrentPotentialFourier, 
-        operator
+        operator,
     ):
     # Converting x, y unit to 
     r_unit = cp.winding_surface.gamma().copy()
@@ -213,13 +206,11 @@ def project_field_operator_cylindrical(
 
     phi_unit = np.cross(z_unit, r_unit)
     return(
-        project_field_operator_coord(
+        project_arr_coord(
             operator,
             unit1=r_unit, 
             unit2=phi_unit, 
             unit3=z_unit,
-            one_field_period=True,
-            nfp=cp.nfp
         )
     )
 
