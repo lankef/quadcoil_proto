@@ -72,10 +72,12 @@ def K_operator_cylindrical(cp: CurrentPotentialFourier, current_scale, normalize
         current_scale=current_scale, 
         normalize=False
     )
+    # Keep only 1 fp
     AK_operator_cylindrical = utils.project_arr_cylindrical(
-        cp=cp,
+        cp=cp.winding_surface,
         operator=AK_operator
     )
+    AK_operator_cylindrical = AK_operator_cylindrical[:AK_operator_cylindrical.shape[0]//cp.nfp]
     if normalize:
         AK_scale = avg_order_of_magnitude(AK_operator_cylindrical)
         AK_operator_cylindrical /= AK_scale

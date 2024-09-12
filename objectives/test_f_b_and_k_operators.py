@@ -74,8 +74,8 @@ class QuadcoilBKTesting(unittest.TestCase):
         AK_l2_operator, AK_l2_scale = f_b_and_k_operators.K_l2_operator(cp, current_scale)
         test_K_l2_2 = np.trace((AK_l2_operator @ scaled_x)* AK_l2_scale, axis1=-1, axis2=-2)
         test_K_l2_1 = np.sum(test_K_2**2, axis=-1)
+        test_K_l2_1 = test_K_l2_1[:test_K_l2_1.shape[0]//cp.nfp, :].flatten()
         assert(np.all(np.isclose(test_K_l2_1, test_K_l2_2)))
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -267,10 +267,8 @@ def Kdash_helper(cp:CurrentPotentialFourier, current_scale):
         /normN_prime_2d[:, :, None, None]
     )
     Kdash1_sv_op = np.swapaxes(Kdash1_sv_op, 2, 3)
-
-
-    G = cp.net_poloidal_current_amperes * current_scale
-    I = cp.net_toroidal_current_amperes * current_scale
+    G = cp.net_poloidal_current_amperes 
+    I = cp.net_toroidal_current_amperes 
     # Constant components of K's partial derivative.
     # Shape: (n_phi, n_theta, 3(xyz))
     Kdash1_const = \
@@ -280,8 +278,8 @@ def Kdash_helper(cp:CurrentPotentialFourier, current_scale):
         dg2_inv_n_dash2*G \
         -dg1_inv_n_dash2*I
     return(
-        Kdash1_sv_op, 
-        Kdash2_sv_op, 
+        Kdash1_sv_op / current_scale, 
+        Kdash2_sv_op / current_scale, 
         Kdash1_const,
         Kdash2_const
     )

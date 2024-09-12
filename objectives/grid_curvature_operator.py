@@ -134,9 +134,11 @@ def grid_curvature_operator_cylindrical(
         L2_unit=False
     )
     out = utils.project_arr_cylindrical(
-        cp=cp, 
+        surface=cp.winding_surface, 
         operator=K_dot_grad_K,
     )
+    # Keep only 1 fp
+    out = out[:out.shape[0]//cp.nfp]
     if normalize:
         out_scale = avg_order_of_magnitude(out)
         out /= out_scale
