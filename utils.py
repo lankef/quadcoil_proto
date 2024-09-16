@@ -16,30 +16,44 @@ sin_or_cos = lambda x, mode: np.where(mode==1, np.sin(x), np.cos(x))
 
 ''' Winding surface '''
 
-def gen_conv_winding_surface(plasma_surface, d_expand):
-
-    winding_surface = SurfaceRZFourier(
+def gen_conv_winding_surface(
+        plasma_surface, 
+        d_expand,
+        mpol=None,
+        ntor=None,
+        n_phi=None,
+        n_theta=None,
+    ):
+    
+    if mpol is None:
+        mpol = plasma_surface.mpol
+    if ntor is None:
+        ntor = plasma_surface.ntor
+    if n_phi is None:
+        n_phi = len(plasma_surface.quadpoints_phi) 
+    if n_theta is None:
+        n_theta = len(plasma_surface.quadpoints_theta) 
+    offset_surface = SurfaceRZFourier(
         nfp=plasma_surface.nfp, 
         stellsym=plasma_surface.stellsym, 
-        mpol=plasma_surface.mpol, 
-        ntor=plasma_surface.ntor, 
-        quadpoints_phi=plasma_surface.quadpoints_phi, 
-        quadpoints_theta=plasma_surface.quadpoints_theta, 
+        mpol=mpol,
+        ntor=ntor,
+        quadpoints_phi=np.linspace(0, 1, n_phi, endpoint=False),
+        quadpoints_theta=np.linspace(0, 1, n_theta, endpoint=False),
     )
-    winding_surface.set_dofs(plasma_surface.get_dofs())
-    winding_surface.extend_via_normal(d_expand)
+    offset_surface.set_dofs(plasma_surface.to_RZFourier().get_dofs())
+    offset_surface.extend_via_normal(d_expand)
     # A naively expanded surface usually has self-intersections 
     # in the poloidal cross section when the plasma is bean-shaped.
     # To avoid this, we create a new surface by taking each poloidal cross section's 
     # convex hull.
-    winding_surface = winding_surface.to_RZFourier()
-    gamma = winding_surface.gamma()
+    gamma = offset_surface.gamma().copy()
     gamma_R = np.linalg.norm([gamma[:,:,0], gamma[:,:,1]], axis=0)
     gamma_Z = gamma[:,:,2]
     gamma_new = np.zeros_like(gamma)
 
     for i_phi in range(gamma.shape[0]):
-        phi_i = winding_surface.quadpoints_phi[i_phi]
+        phi_i = offset_surface.quadpoints_phi[i_phi]
         cross_sec_R_i = gamma_R[i_phi]
         cross_sec_Z_i = gamma_Z[i_phi]
         ConvexHull_i = ConvexHull(
@@ -83,7 +97,7 @@ def gen_conv_winding_surface(plasma_surface, d_expand):
         # Choose the outboard root as theta=0
         phase_shift = Z_roots[np.argmax(root_R_i)]
         # Re-calculate R and Z from uniformly spaced theta
-        conv_gamma_RZ_i = spline_i(winding_surface.quadpoints_theta + phase_shift)
+        conv_gamma_RZ_i = spline_i(offset_surface.quadpoints_theta + phase_shift)
         conv_gamma_R_i = conv_gamma_RZ_i[:, 0]
         conv_gamma_Z_i = conv_gamma_RZ_i[:, 1]
         # Remove the temporary offset introduced earlier
@@ -97,12 +111,12 @@ def gen_conv_winding_surface(plasma_surface, d_expand):
 
     # Fitting to XYZ tensor fourier surface
     winding_surface_new = SurfaceXYZTensorFourier( 
-        nfp=winding_surface.nfp,
-        stellsym=winding_surface.stellsym,
-        mpol=winding_surface.mpol,
-        ntor=winding_surface.ntor,
-        quadpoints_phi=winding_surface.quadpoints_phi,
-        quadpoints_theta=winding_surface.quadpoints_theta,
+        nfp=offset_surface.nfp,
+        stellsym=offset_surface.stellsym,
+        mpol=offset_surface.mpol,
+        ntor=offset_surface.ntor,
+        quadpoints_phi=offset_surface.quadpoints_phi,
+        quadpoints_theta=offset_surface.quadpoints_theta,
     )
     winding_surface_new.least_squares_fit(gamma_new)
     winding_surface_new = winding_surface_new.to_RZFourier()
@@ -188,20 +202,18 @@ def project_arr_coord(
     ], axis=2)
     return(operator_comp_arr)
 
-
 def project_arr_cylindrical(
-        cp:CurrentPotentialFourier, 
+        gamma, 
         operator,
     ):
-    # Converting x, y unit to 
-    r_unit = cp.winding_surface.gamma().copy()
     # Keeping only the x, y components
-    r_unit[:,:,-1] = 0
+    r_unit = np.zeros_like(gamma)
+    r_unit[:, :, -1] = 0
     # Calculating the norm and dividing the x, y components by it
-    r_unit /= np.linalg.norm(r_unit, axis=2)[:, :, None]
+    r_unit[:, :, :-1] = gamma[:, :, :-1] / np.linalg.norm(gamma, axis=2)[:, :, None]
 
     # Setting Z unit to 1
-    z_unit = np.zeros_like(r_unit)
+    z_unit = np.zeros_like(gamma)
     z_unit[:,:,-1]=1
 
     phi_unit = np.cross(z_unit, r_unit)

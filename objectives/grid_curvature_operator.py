@@ -44,7 +44,23 @@ def grid_curvature_operator(
         Kdash2_sv_op, 
         Kdash1_const,
         Kdash2_const
-    ) = Kdash_helper(cp, current_scale)
+    ) = Kdash_helper(
+        normal=winding_surface.normal(),
+        gammadash1=winding_surface.gammadash1(),
+        gammadash2=winding_surface.gammadash2(),
+        gammadash1dash1=winding_surface.gammadash1dash1(),
+        gammadash1dash2=winding_surface.gammadash1dash2(),
+        gammadash2dash2=winding_surface.gammadash2dash2(),
+        nfp=cp.nfp, 
+        cp_m=cp.m, 
+        cp_n=cp.n,
+        net_poloidal_current_amperes=cp.net_poloidal_current_amperes,
+        net_toroidal_current_amperes=cp.net_toroidal_current_amperes,
+        quadpoints_phi=winding_surface.quadpoints_phi,
+        quadpoints_theta=winding_surface.quadpoints_theta,
+        stellsym=winding_surface.stellsym,
+        current_scale=current_scale
+    )
     (
         _, # trig_m_i_n_i,
         trig_diff_m_i_n_i,
@@ -53,11 +69,16 @@ def grid_curvature_operator(
         _, # partial_phi_phi,
         _, # partial_phi_theta,
         _, # partial_theta_theta,
-    ) = diff_helper(cp)
+    ) = diff_helper(
+        nfp=cp.nfp, cp_m=cp.m, cp_n=cp.n,  
+        quadpoints_phi=winding_surface.quadpoints_phi,
+        quadpoints_theta=winding_surface.quadpoints_theta,
+        stellsym=winding_surface.stellsym
+    )
     
     ''' Pointwise product with partial r/partial phi or theta'''
 
-    _, normN_prime_2d, inv_normN_prime_2d = norm_helper(winding_surface)
+    normN_prime_2d, inv_normN_prime_2d = norm_helper(winding_surface.normal())
     
     term_a_op = (trig_diff_m_i_n_i@partial_phi)[:, :, None, :, None]\
         * Kdash2_sv_op[:, :, :, None, :]
@@ -134,7 +155,7 @@ def grid_curvature_operator_cylindrical(
         L2_unit=False
     )
     out = utils.project_arr_cylindrical(
-        surface=cp.winding_surface, 
+        gamma=cp.winding_surface.gamma(), 
         operator=K_dot_grad_K,
     )
     # Keep only 1 fp

@@ -74,7 +74,7 @@ def K_operator_cylindrical(cp: CurrentPotentialFourier, current_scale, normalize
     )
     # Keep only 1 fp
     AK_operator_cylindrical = utils.project_arr_cylindrical(
-        cp=cp.winding_surface,
+        gamma=cp.winding_surface.gamma(),
         operator=AK_operator
     )
     AK_operator_cylindrical = AK_operator_cylindrical[:AK_operator_cylindrical.shape[0]//cp.nfp]
@@ -106,7 +106,12 @@ def AK_helper(cp: CurrentPotentialFourier):
         _, # partial_phi_phi,
         _, # partial_phi_theta,
         _, # partial_theta_theta,
-    ) = diff_helper(cp)
+    ) = diff_helper(
+        nfp=cp.nfp, cp_m=cp.m, cp_n=cp.n,
+        quadpoints_phi=winding_surface.quadpoints_phi,
+        quadpoints_theta=winding_surface.quadpoints_theta,
+        stellsym=winding_surface.stellsym,
+    )
     inv_normN_prime_2d = 1/np.linalg.norm(winding_surface.normal(), axis=-1)
     dg1 = winding_surface.gammadash1()
     dg2 = winding_surface.gammadash2()

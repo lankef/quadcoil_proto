@@ -3,13 +3,14 @@ sys.path.insert(1,'..')
 import numpy as np
 from utils import sin_or_cos
 from simsopt.field import CurrentPotentialFourier
-
 '''
 This file includes some surface quantities that can 
 potentially be reused by many objective functions,
 such as K dot grad K and surface self force.
+The inputs are arrays so that the code is easy to port into 
+c++.
 '''
-def grad_helper(winding_surface):
+def grad_helper(gammadash1, gammadash2):
     '''
     This is a helper method that calculates the contravariant 
     vectors, grad phi and grad theta, using the curvilinear coordinate 
@@ -18,8 +19,8 @@ def grad_helper(winding_surface):
     - grad2: grad theta = -(dg1 x (dg2 x dg1))/|dg1 x dg2|^2
     Shape: (n_phi, n_theta, 3(xyz))
     '''
-    dg2 = winding_surface.gammadash2()
-    dg1 = winding_surface.gammadash1()
+    dg2 = gammadash2
+    dg1 = gammadash1
     dg1xdg2 = np.cross(dg1, dg2, axis=-1)
     denom = np.sum(dg1xdg2**2, axis=-1)
     # grad phi
@@ -28,10 +29,9 @@ def grad_helper(winding_surface):
     grad2 = np.cross(dg1, -dg1xdg2, axis=-1)/denom[:,:,None]
     return(grad1, grad2)
 
-def norm_helper(winding_surface):
+def norm_helper(vec):
     '''
     This is a helper method that calculates the following quantities:
-    - normal_vec: The normal vector N
     - normN_prime_2d: The normal vector's length, |N|
     - inv_normN_prime_2d: 1/|N|
     Shape: (n_phi, n_theta, 3(xyz)); (n_phi, n_theta); (n_phi, n_theta)
@@ -41,16 +41,21 @@ def norm_helper(winding_surface):
     # w.r.t. phi(phi) and theta
     # Not to be confused with the normN (plasma surface Jacobian)
     # in Regcoil.
-    normal_vec = winding_surface.normal()
-    normN_prime_2d = np.linalg.norm(normal_vec, axis=-1) # |N|
-    inv_normN_prime_2d = 1/normN_prime_2d # 1/|N|
+    norm = np.linalg.norm(vec, axis=-1) # |N|
+    inv_norm = 1/norm # 1/|N|
     return(
-        normal_vec,
-        normN_prime_2d,
-        inv_normN_prime_2d
+        norm,
+        inv_norm
     )
 
-def dga_inv_n_dashb(winding_surface):
+def dga_inv_n_dashb(
+    normal,
+    gammadash1,
+    gammadash2,
+    gammadash1dash1,
+    gammadash1dash2,
+    gammadash2dash2,
+):
     ''' 
     This is a helper method that calculates the following quantities:
     - dg1_inv_n_dash1: d[(1/|n|)(dgamma/dphi)]/dphi
@@ -62,11 +67,11 @@ def dga_inv_n_dashb(winding_surface):
     # gammadash1() calculates partial r/partial phi. Keep in mind that the angles
     # in simsopt go from 0 to 1.
     # Shape: (n_phi, n_theta, 3(xyz))
-    dg2 = winding_surface.gammadash2()
-    dg1 = winding_surface.gammadash1()
-    dg22 = winding_surface.gammadash2dash2()
-    dg11 = winding_surface.gammadash1dash1()
-    dg12 = winding_surface.gammadash1dash2()
+    dg1 = gammadash1
+    dg2 = gammadash2
+    dg11 = gammadash1dash1
+    dg12 = gammadash1dash2
+    dg22 = gammadash2dash2
 
     # Because Phi is defined around the unit normal, rather 
     # than N, we need to calculate the derivative and double derivative 
@@ -82,7 +87,8 @@ def dga_inv_n_dashb(winding_surface):
         np.cross(dg12, dg2)
         + np.cross(dg1, dg22)
     )
-    normal_vec, _, inv_normN_prime_2d = norm_helper(winding_surface)
+    normal_vec = normal
+    _, inv_normN_prime_2d = norm_helper(normal_vec)
 
     # Derivatives of 1/|N|:
     # d/dx(1/sqrt(f(x)^2 + g(x)^2 + h(x)^2)) 
@@ -109,23 +115,37 @@ def dga_inv_n_dashb(winding_surface):
         dg2_inv_n_dash2 
     )
 
-def unitnormaldash(winding_surface):
+def unitnormaldash(
+        normal,
+        gammadash1,
+        gammadash2,
+        gammadash1dash1,
+        gammadash1dash2,
+        gammadash2dash2,
+    ):
     ''' 
     This is a helper method that calculates the following quantities:
     - unitnormaldash1: d unitnormal/dphi
     - unitnormaldash2: d unitnormal/dtheta
     Shape: (n_phi, n_theta, 3(xyz))
     '''
-    _, _, inv_normN_prime_2 = norm_helper(winding_surface)
+    _, inv_normN_prime_2d = norm_helper(normal)
     (
         dg1_inv_n_dash1, dg1_inv_n_dash2,
         _, _ # dg2_inv_n_dash1, dg2_inv_n_dash2
-    ) = dga_inv_n_dashb(winding_surface)
+    ) = dga_inv_n_dashb(
+        normal=normal,
+        gammadash1=gammadash1,
+        gammadash2=gammadash2,
+        gammadash1dash1=gammadash1dash1,
+        gammadash1dash2=gammadash1dash2,
+        gammadash2dash2=gammadash2dash2,
+    )
 
-    dg2 = winding_surface.gammadash2()
-    dg1_inv_n = winding_surface.gammadash1() * inv_normN_prime_2[:, :, None]
-    dg22 = winding_surface.gammadash2dash2()
-    dg12 = winding_surface.gammadash1dash2()
+    dg2 = gammadash2
+    dg1_inv_n = gammadash1 * inv_normN_prime_2d[:, :, None]
+    dg22 = gammadash2dash2
+    dg12 = gammadash1dash2
     unitnormaldash1 = (
         np.cross(dg1_inv_n_dash1, dg2, axis=-1)
         + np.cross(dg1_inv_n, dg12, axis=-1)
@@ -136,7 +156,12 @@ def unitnormaldash(winding_surface):
     )
     return(unitnormaldash1, unitnormaldash2)
 
-def diff_helper(cp:CurrentPotentialFourier):
+def diff_helper(
+        nfp, cp_m, cp_n, 
+        quadpoints_phi,
+        quadpoints_theta,
+        stellsym,
+    ):
     '''
     Calculates the following quantity:
     - trig_m_i_n_i, trig_diff_m_i_n_i: 
@@ -150,17 +175,16 @@ def diff_helper(cp:CurrentPotentialFourier):
     into the simsopt conventions. Therefore, IFT for such derivatives 
     must be performed with trig_m_i_n_i and trig_diff_m_i_n_i (see above).
     '''
-    winding_surface = cp.winding_surface
     # The uniform index for phi contains first sin Fourier 
     # coefficients, then optionally cos is stellsym=False.
-    n_harmonic = len(cp.m)
+    n_harmonic = len(cp_m)
     iden = np.identity(n_harmonic)
     # Shape: (n_phi, n_theta)
-    phi_grid = np.pi*2*winding_surface.quadpoints_phi[:, None]
-    theta_grid = np.pi*2*winding_surface.quadpoints_theta[None, :]
+    phi_grid = np.pi*2*quadpoints_phi[:, None]
+    theta_grid = np.pi*2*quadpoints_theta[None, :]
     # When stellsym is enabled, Phi is a sin fourier series.
     # After a derivative, it becomes a cos fourier series.
-    if winding_surface.stellsym:
+    if stellsym:
         trig_choice = 1
     # Otherwise, it's a sin-cos series. After a derivative,
     # it becomes a cos-sin series.
@@ -174,24 +198,24 @@ def diff_helper(cp:CurrentPotentialFourier):
     # sin or sin-cos coeffs -> grid vals
     # Shape: (n_phi, n_theta, dof)
     trig_m_i_n_i = sin_or_cos(
-        (cp.m)[None, None, :]*theta_grid[:, :, None]
-        -(cp.n*cp.nfp)[None, None, :]*phi_grid[:, :, None],
+        (cp_m)[None, None, :]*theta_grid[:, :, None]
+        -(cp_n*nfp)[None, None, :]*phi_grid[:, :, None],
         trig_choice
     )    
     # cos or cos-sin coeffs -> grid vals
     # Shape: (n_phi, n_theta, dof)
     trig_diff_m_i_n_i = sin_or_cos(
-        (cp.m)[None, None, :]*theta_grid[:, :, None]
-        -(cp.n*cp.nfp)[None, None, :]*phi_grid[:, :, None],
+        (cp_m)[None, None, :]*theta_grid[:, :, None]
+        -(cp_n*nfp)[None, None, :]*phi_grid[:, :, None],
         -trig_choice
     )
 
     # Fourier derivatives
-    partial_theta = cp.m*trig_choice*iden*2*np.pi
-    partial_phi = -cp.n*trig_choice*iden*cp.nfp*2*np.pi
-    partial_theta_theta = -cp.m**2*iden*(2*np.pi)**2
-    partial_phi_phi = -(cp.n*cp.nfp)**2*iden*(2*np.pi)**2
-    partial_phi_theta = cp.n*cp.nfp*cp.m*iden*(2*np.pi)**2
+    partial_theta = cp_m*trig_choice*iden*2*np.pi
+    partial_phi = -cp_n*trig_choice*iden*nfp*2*np.pi
+    partial_theta_theta = -cp_m**2*iden*(2*np.pi)**2
+    partial_phi_phi = -(cp_n*nfp)**2*iden*(2*np.pi)**2
+    partial_phi_theta = cp_n*nfp*cp_m*iden*(2*np.pi)**2
     return(
         trig_m_i_n_i,
         trig_diff_m_i_n_i,
@@ -202,7 +226,20 @@ def diff_helper(cp:CurrentPotentialFourier):
         partial_theta_theta,
     )
 
-def Kdash_helper(cp:CurrentPotentialFourier, current_scale):
+def Kdash_helper(
+        normal,
+        gammadash1,
+        gammadash2,
+        gammadash1dash1,
+        gammadash1dash2,
+        gammadash2dash2,
+        nfp, cp_m, cp_n,
+        net_poloidal_current_amperes,
+        net_toroidal_current_amperes,
+        quadpoints_phi,
+        quadpoints_theta,
+        stellsym,
+        current_scale):
     '''
     Calculates the following quantity
     - Kdash1_sv_op, Kdash2_sv_op: 
@@ -213,8 +250,7 @@ def Kdash_helper(cp:CurrentPotentialFourier, current_scale):
     currents). 
     Shape: (n_phi, n_theta, 3(xyz))
     '''
-    winding_surface = cp.winding_surface
-    _, normN_prime_2d, inv_normN_prime_2d = norm_helper(winding_surface)
+    normN_prime_2d, inv_normN_prime_2d = norm_helper(normal)
     (
         trig_m_i_n_i,
         trig_diff_m_i_n_i,
@@ -223,14 +259,26 @@ def Kdash_helper(cp:CurrentPotentialFourier, current_scale):
         partial_phi_phi,
         partial_phi_theta,
         partial_theta_theta,
-    ) = diff_helper(cp)
+    ) = diff_helper(
+        nfp, cp_m, cp_n,
+        quadpoints_phi,
+        quadpoints_theta,
+        stellsym,
+    )
     # Some quantities
     (
         dg1_inv_n_dash1,
         dg1_inv_n_dash2,
         dg2_inv_n_dash1,
         dg2_inv_n_dash2 
-    ) = dga_inv_n_dashb(winding_surface)
+    ) = dga_inv_n_dashb(
+        normal=normal,
+        gammadash1=gammadash1,
+        gammadash2=gammadash2,
+        gammadash1dash1=gammadash1dash1,
+        gammadash1dash2=gammadash1dash2,
+        gammadash2dash2=gammadash2dash2,
+    )
     # Operators that generates the derivative of K
     # Note the use of trig_diff_m_i_n_i for inverse
     # FT following odd-order derivatives.
@@ -239,14 +287,14 @@ def Kdash_helper(cp:CurrentPotentialFourier, current_scale):
         dg2_inv_n_dash2[:, :, None, :]
         *(trig_diff_m_i_n_i@partial_phi)[:, :, :, None]
         
-        +cp.winding_surface.gammadash2()[:, :, None, :]
+        +gammadash2[:, :, None, :]
         *(trig_m_i_n_i@partial_phi_theta)[:, :, :, None]
         /normN_prime_2d[:, :, None, None]
         
         -dg1_inv_n_dash2[:, :, None, :]
         *(trig_diff_m_i_n_i@partial_theta)[:, :, :, None]
         
-        -cp.winding_surface.gammadash1()[:, :, None, :]
+        -gammadash1[:, :, None, :]
         *(trig_m_i_n_i@partial_theta_theta)[:, :, :, None]
         /normN_prime_2d[:, :, None, None]
     )
@@ -255,20 +303,20 @@ def Kdash_helper(cp:CurrentPotentialFourier, current_scale):
         dg2_inv_n_dash1[:, :, None, :]
         *(trig_diff_m_i_n_i@partial_phi)[:, :, :, None]
         
-        +cp.winding_surface.gammadash2()[:, :, None, :]
+        +gammadash2[:, :, None, :]
         *(trig_m_i_n_i@partial_phi_phi)[:, :, :, None]
         /normN_prime_2d[:, :, None, None]
         
         -dg1_inv_n_dash1[:, :, None, :]
         *(trig_diff_m_i_n_i@partial_theta)[:, :, :, None]
         
-        -cp.winding_surface.gammadash1()[:, :, None, :]
+        -gammadash1[:, :, None, :]
         *(trig_m_i_n_i@partial_phi_theta)[:, :, :, None]
         /normN_prime_2d[:, :, None, None]
     )
     Kdash1_sv_op = np.swapaxes(Kdash1_sv_op, 2, 3)
-    G = cp.net_poloidal_current_amperes 
-    I = cp.net_toroidal_current_amperes 
+    G = net_poloidal_current_amperes 
+    I = net_toroidal_current_amperes 
     # Constant components of K's partial derivative.
     # Shape: (n_phi, n_theta, 3(xyz))
     Kdash1_const = \
