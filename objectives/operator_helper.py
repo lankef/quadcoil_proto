@@ -250,7 +250,7 @@ def Kdash_helper(
     currents). 
     Shape: (n_phi, n_theta, 3(xyz))
     '''
-    normN_prime_2d, inv_normN_prime_2d = norm_helper(normal)
+    normN_prime_2d, _ = norm_helper(normal)
     (
         trig_m_i_n_i,
         trig_diff_m_i_n_i,

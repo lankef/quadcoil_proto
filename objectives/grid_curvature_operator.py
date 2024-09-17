@@ -137,7 +137,7 @@ def grid_curvature_operator(
     # We only care about symmetric Phi bar bar.
     K_dot_grad_K_operator = (K_dot_grad_K_operator+np.swapaxes(K_dot_grad_K_operator,3,4))/2
 
-    return(K_dot_grad_K_operator/current_scale**2)
+    return(K_dot_grad_K_operator/current_scale)
 
 def grid_curvature_operator_cylindrical(
         cp:CurrentPotentialFourier, 

@@ -226,22 +226,6 @@ namespace biest_call{
         }
         else
         {
-            // Detecting whether BIEST has flipped the handedness of the surface.
-            // Doesn't seem to matter
-            // int sign = 1;
-            // const auto X_temp = Svec[0].Coord();
-            // sctl::Vector<Real> dX, n0, n1;
-            // biest::SurfaceOp<Real> surf_op(sctl::Comm::Self(), Nt, Np);
-            // surf_op.Grad2D(dX, X_temp);
-            // surf_op.SurfNormalAreaElem(&n0, nullptr, dX, &X_temp); // outward-normal
-            // surf_op.SurfNormalAreaElem(&n1, nullptr, dX, nullptr); // cross-product normal
-            // const Real n0_dot_n1 = n0[Nt * Np * 0] * n1[Nt * Np * 0] + n0[Nt * Np * 1] * n1[Nt * Np * 1] + n0[Nt * Np * 2] * n1[Nt * Np * 2];
-            // py::print("Detecting sign flip. n0_dot_n1 =", n0_dot_n1);
-            // if (undo_flip && n0_dot_n1 < 0) // Sign flip detected
-            // {
-            //     py::print("Sign flip detected in BIEST during double layer integral. Undoing flip.");
-            //     sign = -1;
-            // }
             // Constructing kernel and setting up the integral
             const auto kernel = biest::Laplace3D<Real>::DxU();             // Laplace double-layer kernel function
             biop.SetupSingular(Svec, kernel, digits, nfp, Nt, Np, Nt, Np); // initialize biop

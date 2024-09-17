@@ -17,6 +17,7 @@ class QuadcoilKKTesting(unittest.TestCase):
             # np.gradient is only 2nd order accurate and needs very small grid size.
             loc1 = np.random.random()
             loc2 = np.random.random()
+
             winding_surface_hi_res = SurfaceRZFourier(
                     nfp=winding_surface.nfp, 
                     stellsym=winding_surface.stellsym, 

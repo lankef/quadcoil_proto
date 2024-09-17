@@ -172,7 +172,7 @@ def self_force_integrands_xyz(
     )
 
 # Calculates the self-force operator.
-def self_force_cylindrical(cp: CurrentPotentialFourier, current_scale, normalize=True):
+def self_force_cylindrical(cp: CurrentPotentialFourier, current_scale, normalize=True, skip_integral=False):
     winding_surface = cp.winding_surface
     nfp = cp.nfp
     len_phi_1fp = len(winding_surface.quadpoints_phi)//nfp
@@ -197,7 +197,7 @@ def self_force_cylindrical(cp: CurrentPotentialFourier, current_scale, normalize
         net_poloidal_current_amperes=cp.net_poloidal_current_amperes,
         net_toroidal_current_amperes=cp.net_toroidal_current_amperes,
         quadpoints_phi=winding_surface.quadpoints_phi[:len_phi_1fp],
-        quadpoints_theta=winding_surface.quadpoints_theta[:len_phi_1fp],
+        quadpoints_theta=winding_surface.quadpoints_theta,
         stellsym=winding_surface.stellsym,
         AK_x_trimmed=AK_trimmed, 
         bK_x_trimmed=bK_trimmed,
@@ -231,6 +231,10 @@ def self_force_cylindrical(cp: CurrentPotentialFourier, current_scale, normalize
         gamma_1fp, 
         K_x_op_xyz
     )
+
+    if skip_integral:
+        return(K_op_cylindrical, integrand_single_cylindrical, integrand_double_cylindrical)
+
     # Performing the singular integral using BIEST
     integrand_single_cylindrical_reshaped = integrand_single_cylindrical.reshape((
         integrand_single_cylindrical.shape[0],
