@@ -52,8 +52,6 @@ def gen_conv_winding_surface(
     gamma_Z = gamma[:,:,2]
     gamma_new = np.zeros_like(gamma)
 
-    fig = plt.figure()
-    ax = fig.add_subplot(projection='3d')
     for i_phi in range(gamma.shape[0]):
         phi_i = offset_surface.quadpoints_phi[i_phi]
         cross_sec_R_i = gamma_R[i_phi]
@@ -110,11 +108,7 @@ def gen_conv_winding_surface(
         gamma_new[i_phi, :, 0] = conv_gamma_X_i
         gamma_new[i_phi, :, 1] = conv_gamma_Y_i
         gamma_new[i_phi, :, 2] = conv_gamma_Z_i
-        ax.scatter(
-            gamma_new[i_phi, :, 0], gamma_new[i_phi, :, 1], gamma_new[i_phi, :, 2],
-            alpha = i_phi/gamma.shape[0],
-            c = np.arange(gamma.shape[1])
-        )
+
     # Fitting to XYZ tensor fourier surface
     winding_surface_new = SurfaceXYZTensorFourier( 
         nfp=offset_surface.nfp,
