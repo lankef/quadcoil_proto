@@ -36,8 +36,8 @@ def gen_conv_winding_surface(
     offset_surface = SurfaceRZFourier(
         nfp=plasma_surface.nfp, 
         stellsym=plasma_surface.stellsym, 
-        mpol=mpol,
-        ntor=ntor,
+        mpol=plasma_surface.mpol,
+        ntor=plasma_surface.ntor,
         quadpoints_phi=np.linspace(0, 1, n_phi, endpoint=False),
         quadpoints_theta=np.linspace(0, 1, n_theta, endpoint=False),
     )
@@ -52,6 +52,8 @@ def gen_conv_winding_surface(
     gamma_Z = gamma[:,:,2]
     gamma_new = np.zeros_like(gamma)
 
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
     for i_phi in range(gamma.shape[0]):
         phi_i = offset_surface.quadpoints_phi[i_phi]
         cross_sec_R_i = gamma_R[i_phi]
@@ -108,13 +110,17 @@ def gen_conv_winding_surface(
         gamma_new[i_phi, :, 0] = conv_gamma_X_i
         gamma_new[i_phi, :, 1] = conv_gamma_Y_i
         gamma_new[i_phi, :, 2] = conv_gamma_Z_i
-
+        ax.scatter(
+            gamma_new[i_phi, :, 0], gamma_new[i_phi, :, 1], gamma_new[i_phi, :, 2],
+            alpha = i_phi/gamma.shape[0],
+            c = np.arange(gamma.shape[1])
+        )
     # Fitting to XYZ tensor fourier surface
     winding_surface_new = SurfaceXYZTensorFourier( 
         nfp=offset_surface.nfp,
         stellsym=offset_surface.stellsym,
-        mpol=offset_surface.mpol,
-        ntor=offset_surface.ntor,
+        mpol=mpol,
+        ntor=ntor,
         quadpoints_phi=offset_surface.quadpoints_phi,
         quadpoints_theta=offset_surface.quadpoints_theta,
     )
@@ -126,8 +132,8 @@ def gen_conv_winding_surface(
     winding_surface_out = SurfaceRZFourier(
         nfp=plasma_surface.nfp, 
         stellsym=plasma_surface.stellsym, 
-        mpol=plasma_surface.mpol, 
-        ntor=plasma_surface.ntor, 
+        mpol=mpol, 
+        ntor=ntor, 
         quadpoints_phi=np.arange(len_phi_full)/len_phi_full, 
         quadpoints_theta=plasma_surface.quadpoints_theta, 
     )
@@ -353,31 +359,6 @@ def change_cp_resolution(cp: CurrentPotentialFourier, n_phi:int, n_theta:int):
         net_toroidal_current_amperes=cp.net_toroidal_current_amperes,
         stellsym=True)
     return(cp_new)
-
-def recover_Phi_eigen(bbar_Phi, objective_op, objective_rhs):
-    '''
-    Recover Phi from Phi bar bar by choosing the eigenvector with the 
-    largest positive eigenvalue.
-    This minimizes the Forbenius norm ||Phi Phi^T - Phi bar bar||_F
-    as stated by Eckart–Young–Mirsky theorem.
-    
-    Because the recovered Phi might have the wrong sign:
-    Phi Phi^T = (-Phi) (-Phi)^T
-    An objective operator and rhs need to be provided to choose 
-    the Phi with smaller 
-    ||(objective operator) @ Phi - objective_rhs||_2.
-    '''
-    eigenval, eigenvec = np.linalg.eig(bbar_Phi)
-    index_eig = np.argsort(eigenval)[-1]
-    Phi_unsigned = np.real(eigenvec[:,index_eig])*np.real(np.sqrt(eigenval[index_eig]))
-    # Phi bar bar is equal for +- Phi.
-    A_times_phi_unsigned = objective_op @ Phi_unsigned
-    if np.linalg.norm(A_times_phi_unsigned - objective_rhs)\
-        < np.linalg.norm(-A_times_phi_unsigned - objective_rhs):
-        Phi = Phi_unsigned
-    else:
-        Phi = -Phi_unsigned
-    return(Phi, eigenval)
 
 ''' 
 Conic helper methods
