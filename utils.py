@@ -1,5 +1,12 @@
 # Import packages.
 import numpy as np
+try:
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union, polygonize
+except ImportError:
+    LineString=None
+    unary_union=None
+    polygonize=None
 
 # from simsopt.objectives import SquaredFlux
 # from simsopt.field.magneticfieldclasses import WindingSurfaceField
@@ -15,8 +22,77 @@ avg_order_of_magnitude = lambda x: np.exp(np.average(np.log(np.abs(x[x!=0]))))
 sin_or_cos = lambda x, mode: np.where(mode==1, np.sin(x), np.cos(x))
 
 ''' Winding surface '''
+# @SimsoptRequires(LineString is not None, "gen_union_winding_surface requires shapely package")
+def callable_RZ_union(vertices_R, vertices_Z):
+    vertices_R_wrapped = np.pad(vertices_R, (0, 1), mode='wrap')
+    vertices_Z_wrapped = np.pad(vertices_Z, (0, 1), mode='wrap')
+    vertices_RZ_i = np.stack((vertices_R_wrapped, vertices_Z_wrapped)).T
+    linestring = LineString(vertices_RZ_i)
+    polygon = unary_union(polygonize(unary_union(linestring)))
+    union_vertices = np.array(polygon.exterior.coords).T
+    union_vertices_R_periodic = union_vertices[0]
+    union_vertices_Z_periodic = union_vertices[1]
+    return(
+        union_vertices_R_periodic,
+        union_vertices_Z_periodic,
+    )
+
+def callable_RZ_conv(vertices_R, vertices_Z):
+    ConvexHull_i = ConvexHull(
+        np.array([
+            vertices_R,
+            vertices_Z
+        ]).T
+    )
+    vertices_i = ConvexHull_i.vertices
+    # Obtaining vertices
+    vertices_R_new = vertices_R[vertices_i]
+    vertices_Z_new = vertices_Z[vertices_i]
+    vertices_R_periodic = np.append(vertices_R_new, vertices_R_new[0])
+    vertices_Z_periodic = np.append(vertices_Z_new, vertices_Z_new[0])
+    return(vertices_R_periodic, vertices_Z_periodic)
 
 def gen_conv_winding_surface(
+        plasma_surface, 
+        d_expand,
+        mpol=None,
+        ntor=None,
+        n_phi=None,
+        n_theta=None,
+    ):
+    return(gen_callable_winding_surface(
+        callable_RZ_conv,
+        plasma_surface, 
+        d_expand,
+        mpol,
+        ntor,
+        n_phi,
+        n_theta,
+    ))
+
+def gen_union_winding_surface(
+        plasma_surface, 
+        d_expand,
+        mpol=None,
+        ntor=None,
+        n_phi=None,
+        n_theta=None,
+    ):
+    return(gen_callable_winding_surface(
+        callable_RZ_union,
+        plasma_surface, 
+        d_expand,
+        mpol,
+        ntor,
+        n_phi,
+        n_theta,
+    ))
+
+
+# lambda_RZ must converts two arrays containing R and Z (without repeating endpoints)
+# into two arrays containing R and Z WITH REPEATING ENDPOINTS
+def gen_callable_winding_surface(
+        callable_process_and_wrap_RZ,
         plasma_surface, 
         d_expand,
         mpol=None,
@@ -56,24 +132,20 @@ def gen_conv_winding_surface(
         phi_i = offset_surface.quadpoints_phi[i_phi]
         cross_sec_R_i = gamma_R[i_phi]
         cross_sec_Z_i = gamma_Z[i_phi]
-        ConvexHull_i = ConvexHull(
-            np.array([
-                cross_sec_R_i,
-                cross_sec_Z_i
-            ]).T
-        )
-        vertices_i = ConvexHull_i.vertices
-        # Obtaining vertices
-        vertices_R_i = cross_sec_R_i[vertices_i]
-        vertices_Z_i = cross_sec_Z_i[vertices_i]
-        # Temporarily center the cross section.
+
+        # Create periodic array for interpolation
+        (
+            vertices_R_periodic_i,
+            vertices_Z_periodic_i
+        ) = callable_process_and_wrap_RZ(cross_sec_R_i, cross_sec_Z_i)
+
+        
+        # Temporarily vertically the cross section.
         # For centering the theta=0 curve to be along 
         # the projection of the axis to the outboard side.
-        Z_center_i = np.average(vertices_Z_i)
-        vertices_Z_i = vertices_Z_i - Z_center_i
-        # Create periodic array for interpolation
-        vertices_R_periodic_i = np.append(vertices_R_i, vertices_R_i[0])
-        vertices_Z_periodic_i = np.append(vertices_Z_i, vertices_Z_i[0])
+        Z_center_i = np.average(vertices_Z_periodic_i[:-1])
+        vertices_Z_periodic_i = vertices_Z_periodic_i - Z_center_i
+
         # Parameterize the series of vertices with 
         # arc length
         delta_R = np.diff(vertices_R_periodic_i)
@@ -135,7 +207,7 @@ def gen_conv_winding_surface(
     return(winding_surface_out)
 
 # Assumes that source_surface only contains 1 field period!
-def gen_winding_surface(source_surface, d_expand):
+def gen_normal_winding_surface(source_surface, d_expand):
     # Expanding plasma surface to winding surface
     len_phi = len(source_surface.quadpoints_phi)
     len_phi_full_fp = len_phi * source_surface.nfp
