@@ -231,22 +231,7 @@ def gen_normal_winding_surface(source_surface, d_expand):
     )
     winding_surface.set_dofs(source_surface.get_dofs())
     winding_surface.extend_via_normal(d_expand)
-
-    winding_surface_2 = SurfaceRZFourier(
-        nfp=source_surface.nfp, 
-        stellsym=source_surface.stellsym, 
-        mpol=source_surface.mpol, 
-        ntor=source_surface.ntor, 
-        quadpoints_phi=np.arange(len_phi_full_fp)/len_phi_full_fp, 
-        quadpoints_theta=np.arange(len_theta)/len_theta, 
-    )
-    winding_surface_2.set_dofs(source_surface.get_dofs())
-    winding_surface_2.extend_via_projected_normal(-d_expand)
-
-    if winding_surface.minor_radius() > winding_surface.minor_radius():
-        return(winding_surface)
-    else:
-        return(winding_surface_2)
+    return(winding_surface)
 
 ''' Operator projection '''
 def project_arr_coord(
