@@ -1,7 +1,7 @@
 # Import packages.
 import numpy as np
 try:
-    from shapely.geometry import LineString
+    from shapely.geometry import LineString, MultiPolygon
     from shapely.ops import unary_union, polygonize
 except ImportError:
     LineString=None
@@ -29,6 +29,14 @@ def callable_RZ_union(vertices_R, vertices_Z):
     vertices_RZ_i = np.stack((vertices_R_wrapped, vertices_Z_wrapped)).T
     linestring = LineString(vertices_RZ_i)
     polygon = unary_union(polygonize(unary_union(linestring)))
+    # This union may contain multiple polygons. 
+    # When this is the case, we keep only the largest.
+    if type(polygon) is MultiPolygon:
+        area_list = []
+        poly_list = list(polygon.geoms)
+        for p in poly_list:
+            area_list.append(p.area)
+        polygon = poly_list[np.argmax(area_list)]
     union_vertices = np.array(polygon.exterior.coords).T
     union_vertices_R_periodic = union_vertices[0]
     union_vertices_Z_periodic = union_vertices[1]
@@ -222,24 +230,23 @@ def gen_normal_winding_surface(source_surface, d_expand):
         quadpoints_theta=np.arange(len_theta)/len_theta, 
     )
     winding_surface.set_dofs(source_surface.get_dofs())
-    winding_surface.extend_via_normal(-d_expand)
+    winding_surface.extend_via_normal(d_expand)
 
-    # Quadsr's surface seem to be oriented that extend_via_projected_normal 
-    # with a negative distance expands the surface. Just to make sure,
-    # add a check for minor radius.
-    if winding_surface.minor_radius() < source_surface.minor_radius():
-        winding_surface = SurfaceRZFourier(
-            nfp=source_surface.nfp, 
-            stellsym=source_surface.stellsym, 
-            mpol=source_surface.mpol, 
-            ntor=source_surface.ntor, 
-            quadpoints_phi=np.arange(len_phi_full_fp)/len_phi_full_fp, 
-            quadpoints_theta=np.arange(len_theta)/len_theta, 
-        )
-        winding_surface.set_dofs(source_surface.get_dofs())
-        winding_surface.extend_via_projected_normal(d_expand)
+    winding_surface_2 = SurfaceRZFourier(
+        nfp=source_surface.nfp, 
+        stellsym=source_surface.stellsym, 
+        mpol=source_surface.mpol, 
+        ntor=source_surface.ntor, 
+        quadpoints_phi=np.arange(len_phi_full_fp)/len_phi_full_fp, 
+        quadpoints_theta=np.arange(len_theta)/len_theta, 
+    )
+    winding_surface_2.set_dofs(source_surface.get_dofs())
+    winding_surface_2.extend_via_projected_normal(-d_expand)
 
-    return(winding_surface)
+    if winding_surface.minor_radius() > winding_surface.minor_radius():
+        return(winding_surface)
+    else:
+        return(winding_surface_2)
 
 ''' Operator projection '''
 def project_arr_coord(
