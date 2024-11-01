@@ -9,7 +9,7 @@ import simsoptpp as sopp
 from operator_helper import diff_helper
 
 
-def f_B_operator_and_current_scale(cpst: CurrentPotentialSolve, normalize=True):
+def f_B_operator_and_current_scale(cpst: CurrentPotentialSolve, normalize=True, current_scale=None):
     '''
     Produces a dimensionless f_B and K operator that act on X by 
     tr(AX). Also produces a scaling factor current_scale that is an 
@@ -35,7 +35,8 @@ def f_B_operator_and_current_scale(cpst: CurrentPotentialSolve, normalize=True):
         cpst.B_matrix_and_rhs()
         B_normal = cpst.gj/np.sqrt(normN[:, None])
     # Scaling factor to make X matrix dimensionless. 
-    current_scale = avg_order_of_magnitude(B_normal)/avg_order_of_magnitude(cpst.b_e)
+    if current_scale is None:
+        current_scale = avg_order_of_magnitude(B_normal)/avg_order_of_magnitude(cpst.b_e)
     ''' f_B operator '''
     # Scaling blocks of the operator
     B_normal_scaled = B_normal/current_scale
