@@ -1,7 +1,8 @@
 import cvxpy
 import utils
 import numpy as np
-from objectives.f_b_and_k_operators import K_theta
+from objectives.f_b_and_k_operators_jax import K_theta
+from objectives.operator_helper import A_b_c_to_block_operator
 
 
 def cvxpy_create_X(n_dof,):
@@ -29,7 +30,18 @@ def cvxpy_create_X(n_dof,):
     return(X, constraints)
 
 def cvxpy_no_windowpane(cp, current_scale, X):
-    K_theta_operator, current_scale, K_theta_scale = K_theta(cp, current_scale)
+    (A_K_theta, b_K_theta, c_K_theta) = K_theta(
+        cp.net_poloidal_current_amperes,
+        cp.quadpoints_phi,
+        cp.quadpoints_theta,
+        cp.nfp, cp.m, cp.n,
+        cp.stellsym,
+    )
+    K_theta_operator, K_theta_scale = A_b_c_to_block_operator(
+        A=A_K_theta, b=b_K_theta, c=c_K_theta, 
+        current_scale=current_scale,
+        normalize=True
+    )
     constraints = []
     if cp.stellsym:
         loop_size = K_theta_operator.shape[0]//2

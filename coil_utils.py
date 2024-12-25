@@ -117,7 +117,7 @@ def ifft_simsopt(x, order):
 # ilambda is the index in the lambda scan which you want to select.
 # def cut_coil(cp, cpst):
 # filename = 'regcoil_out.li383.nc' # sys.argv[1]
-# TODO: these tow have a lot of duplicate code. CLean up when finalizing how QUADCOIL is integrated.
+# TODO: these tow have a lot of duplicate code. Clean up when finalizing how QUADCOIL is integrated.
 def coil_xyz_from_cp(
     cp:CurrentPotentialFourier,
     coilsPerHalfPeriod=1,

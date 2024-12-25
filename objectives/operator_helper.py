@@ -1,8 +1,10 @@
 import sys
 sys.path.insert(1,'..')
-import numpy as np
+import jax.numpy as jnp
 from utils import sin_or_cos
-from simsopt.field import CurrentPotentialFourier
+from utils import avg_order_of_magnitude
+from jax import jit
+from functools import partial
 '''
 This file includes some surface quantities that can 
 potentially be reused by many objective functions,
@@ -10,6 +12,7 @@ such as K dot grad K and surface self force.
 The inputs are arrays so that the code is easy to port into 
 c++.
 '''
+@jit
 def grad_helper(gammadash1, gammadash2):
     '''
     This is a helper method that calculates the contravariant 
@@ -21,14 +24,15 @@ def grad_helper(gammadash1, gammadash2):
     '''
     dg2 = gammadash2
     dg1 = gammadash1
-    dg1xdg2 = np.cross(dg1, dg2, axis=-1)
-    denom = np.sum(dg1xdg2**2, axis=-1)
+    dg1xdg2 = jnp.cross(dg1, dg2, axis=-1)
+    denom = jnp.sum(dg1xdg2**2, axis=-1)
     # grad phi
-    grad1 = np.cross(dg2, dg1xdg2, axis=-1)/denom[:,:,None]
+    grad1 = jnp.cross(dg2, dg1xdg2, axis=-1)/denom[:,:,None]
     # grad theta
-    grad2 = np.cross(dg1, -dg1xdg2, axis=-1)/denom[:,:,None]
+    grad2 = jnp.cross(dg1, -dg1xdg2, axis=-1)/denom[:,:,None]
     return(grad1, grad2)
 
+@jit
 def norm_helper(vec):
     '''
     This is a helper method that calculates the following quantities:
@@ -41,13 +45,14 @@ def norm_helper(vec):
     # w.r.t. phi(phi) and theta
     # Not to be confused with the normN (plasma surface Jacobian)
     # in Regcoil.
-    norm = np.linalg.norm(vec, axis=-1) # |N|
+    norm = jnp.linalg.norm(vec, axis=-1) # |N|
     inv_norm = 1/norm # 1/|N|
     return(
         norm,
         inv_norm
     )
 
+@jit
 def dga_inv_n_dashb(
     normal,
     gammadash1,
@@ -78,14 +83,14 @@ def dga_inv_n_dashb(
     # of (dr/dtheta)/|N| and (dr/dphi)/|N|.
     # phi (phi) derivative of the normal's length
     normaldash1 = (
-        np.cross(dg11, dg2)
-        + np.cross(dg1, dg12)
+        jnp.cross(dg11, dg2)
+        + jnp.cross(dg1, dg12)
     )
 
     # Theta derivative of the normal's length
     normaldash2 = (
-        np.cross(dg12, dg2)
-        + np.cross(dg1, dg22)
+        jnp.cross(dg12, dg2)
+        + jnp.cross(dg1, dg22)
     )
     normal_vec = normal
     _, inv_normN_prime_2d = norm_helper(normal_vec)
@@ -94,9 +99,9 @@ def dga_inv_n_dashb(
     # d/dx(1/sqrt(f(x)^2 + g(x)^2 + h(x)^2)) 
     # = (-f(x)f'(x) - g(x)g'(x) - h(x)h'(x))
     # /(f(x)^2 + g(x)^2 + h(x)^2)^(3/2)
-    denominator = np.sum(normal_vec**2, axis=-1)**1.5
-    nominator_inv_normN_prime_2d_dash1 = -np.sum(normal_vec*normaldash1, axis=-1)
-    nominator_inv_normN_prime_2d_dash2 = -np.sum(normal_vec*normaldash2, axis=-1)
+    denominator = jnp.sum(normal_vec**2, axis=-1)**1.5
+    nominator_inv_normN_prime_2d_dash1 = -jnp.sum(normal_vec*normaldash1, axis=-1)
+    nominator_inv_normN_prime_2d_dash2 = -jnp.sum(normal_vec*normaldash2, axis=-1)
     inv_normN_prime_2d_dash1 = nominator_inv_normN_prime_2d_dash1/denominator
     inv_normN_prime_2d_dash2 = nominator_inv_normN_prime_2d_dash2/denominator
     
@@ -115,6 +120,7 @@ def dga_inv_n_dashb(
         dg2_inv_n_dash2 
     )
 
+@jit
 def unitnormaldash(
         normal,
         gammadash1,
@@ -147,15 +153,19 @@ def unitnormaldash(
     dg22 = gammadash2dash2
     dg12 = gammadash1dash2
     unitnormaldash1 = (
-        np.cross(dg1_inv_n_dash1, dg2, axis=-1)
-        + np.cross(dg1_inv_n, dg12, axis=-1)
+        jnp.cross(dg1_inv_n_dash1, dg2, axis=-1)
+        + jnp.cross(dg1_inv_n, dg12, axis=-1)
     )
     unitnormaldash2 = (
-        np.cross(dg1_inv_n_dash2, dg2, axis=-1)
-        + np.cross(dg1_inv_n, dg22, axis=-1)
+        jnp.cross(dg1_inv_n_dash2, dg2, axis=-1)
+        + jnp.cross(dg1_inv_n, dg22, axis=-1)
     )
     return(unitnormaldash1, unitnormaldash2)
 
+@partial(jit, static_argnames=[
+    'nfp',
+    'stellsym',
+])
 def diff_helper(
         nfp, cp_m, cp_n, 
         quadpoints_phi,
@@ -178,10 +188,10 @@ def diff_helper(
     # The uniform index for phi contains first sin Fourier 
     # coefficients, then optionally cos is stellsym=False.
     n_harmonic = len(cp_m)
-    iden = np.identity(n_harmonic)
+    iden = jnp.identity(n_harmonic)
     # Shape: (n_phi, n_theta)
-    phi_grid = np.pi*2*quadpoints_phi[:, None]
-    theta_grid = np.pi*2*quadpoints_theta[None, :]
+    phi_grid = jnp.pi*2*quadpoints_phi[:, None]
+    theta_grid = jnp.pi*2*quadpoints_theta[None, :]
     # When stellsym is enabled, Phi is a sin fourier series.
     # After a derivative, it becomes a cos fourier series.
     if stellsym:
@@ -189,7 +199,7 @@ def diff_helper(
     # Otherwise, it's a sin-cos series. After a derivative,
     # it becomes a cos-sin series.
     else:
-        trig_choice = np.repeat([1,-1], n_harmonic//2)
+        trig_choice = jnp.repeat([1,-1], n_harmonic//2)
     # Inverse Fourier transform that transforms a dof 
     # array to grid values. trig_diff_m_i_n_i acts on 
     # odd-order derivatives of dof, where the sin coeffs 
@@ -211,11 +221,11 @@ def diff_helper(
     )
 
     # Fourier derivatives
-    partial_theta = cp_m*trig_choice*iden*2*np.pi
-    partial_phi = -cp_n*trig_choice*iden*nfp*2*np.pi
-    partial_theta_theta = -cp_m**2*iden*(2*np.pi)**2
-    partial_phi_phi = -(cp_n*nfp)**2*iden*(2*np.pi)**2
-    partial_phi_theta = cp_n*nfp*cp_m*iden*(2*np.pi)**2
+    partial_theta = cp_m*trig_choice*iden*2*jnp.pi
+    partial_phi = -cp_n*trig_choice*iden*nfp*2*jnp.pi
+    partial_theta_theta = -cp_m**2*iden*(2*jnp.pi)**2
+    partial_phi_phi = -(cp_n*nfp)**2*iden*(2*jnp.pi)**2
+    partial_phi_theta = cp_n*nfp*cp_m*iden*(2*jnp.pi)**2
     return(
         trig_m_i_n_i,
         trig_diff_m_i_n_i,
@@ -226,6 +236,10 @@ def diff_helper(
         partial_theta_theta,
     )
 
+@partial(jit, static_argnames=[
+    'nfp',
+    'stellsym',
+])
 def Kdash_helper(
         normal,
         gammadash1,
@@ -238,8 +252,7 @@ def Kdash_helper(
         net_toroidal_current_amperes,
         quadpoints_phi,
         quadpoints_theta,
-        stellsym,
-        current_scale):
+        stellsym):
     '''
     Calculates the following quantity
     - Kdash1_sv_op, Kdash2_sv_op: 
@@ -298,7 +311,7 @@ def Kdash_helper(
         *(trig_m_i_n_i@partial_theta_theta)[:, :, :, None]
         /normN_prime_2d[:, :, None, None]
     )
-    Kdash2_sv_op = np.swapaxes(Kdash2_sv_op, 2, 3)
+    Kdash2_sv_op = jnp.swapaxes(Kdash2_sv_op, 2, 3)
     Kdash1_sv_op = (
         dg2_inv_n_dash1[:, :, None, :]
         *(trig_diff_m_i_n_i@partial_phi)[:, :, :, None]
@@ -314,7 +327,7 @@ def Kdash_helper(
         *(trig_m_i_n_i@partial_phi_theta)[:, :, :, None]
         /normN_prime_2d[:, :, None, None]
     )
-    Kdash1_sv_op = np.swapaxes(Kdash1_sv_op, 2, 3)
+    Kdash1_sv_op = jnp.swapaxes(Kdash1_sv_op, 2, 3)
     G = net_poloidal_current_amperes 
     I = net_toroidal_current_amperes 
     # Constant components of K's partial derivative.
@@ -326,8 +339,39 @@ def Kdash_helper(
         dg2_inv_n_dash2*G \
         -dg1_inv_n_dash2*I
     return(
-        Kdash1_sv_op / current_scale, 
-        Kdash2_sv_op / current_scale, 
+        Kdash1_sv_op, 
+        Kdash2_sv_op, 
         Kdash1_const,
         Kdash2_const
     )
+
+@partial(jit, static_argnames=[
+    'normalize',
+])
+def A_b_c_to_block_operator(A, b, c, current_scale, normalize):
+    '''
+    Converts a set of A, b, c that gives 
+    f(p) = pTAp + bTp +c
+
+    into a matrix consisting of 
+    O = [
+        [(AT+A)/2 / (current_scale**2), b/2 / current_scale],
+        [bT/2     /  current_scale,     c  ]
+    ]
+    That satisfy 
+    f(p) = tr(OX) 
+    for X = (p, 1)(p, 1)^T
+    '''
+    O = jnp.block([
+        [(A+A.swapaxes(-1, -2))    /2/(current_scale**2), jnp.expand_dims(b, axis=-1)       /2/current_scale],
+        [jnp.expand_dims(b, axis=-2)/2/ current_scale,     jnp.expand_dims(c, axis=(-1, -2))                 ]
+    ])
+    if normalize:
+        out_scale = avg_order_of_magnitude(O)
+        O /= out_scale
+    else: 
+        out_scale = 1
+    return(O, out_scale)
+
+
+

@@ -1,6 +1,6 @@
 import unittest
 import operator_helper
-import f_b_and_k_operators
+import f_b_and_k_operators_jax
 import numpy as np
 from simsopt import load
 from simsopt.geo import SurfaceRZFourier
@@ -137,15 +137,9 @@ class QuadcoilHelperTesting(unittest.TestCase):
                 -198308.0580687 
             ]))
             cpst = CurrentPotentialSolve(cp_hi_res, plasma_surface, 0)
-            (
-                f_B_x_operator, 
-                B_normal, 
-                current_scale, 
-                f_B_scale
-            ) = f_b_and_k_operators.f_B_operator_and_current_scale(cpst)
-            current_scale = 1e-7*(np.random.random()+1)
+            cpst.B_matrix_and_rhs()   
             # The quadcoil vector. See paper.
-            scaled_small_x = np.concatenate([current_scale * cp_hi_res.get_dofs(), [1]])
+            scaled_small_x = np.concatenate([cp_hi_res.get_dofs(), [1]])
             theta_study1d, phi_study1d = winding_surface_hi_res.quadpoints_theta, winding_surface_hi_res.quadpoints_phi
             K = cp_hi_res.K()
             # Calculating K's phi and theta derivatives with finite difference
@@ -174,7 +168,6 @@ class QuadcoilHelperTesting(unittest.TestCase):
                 winding_surface_hi_res.quadpoints_phi,
                 winding_surface_hi_res.quadpoints_theta,
                 cp_hi_res.stellsym,
-                current_scale
             )
             Kdash1_op = np.concatenate([
                 Kdash1_sv_op,

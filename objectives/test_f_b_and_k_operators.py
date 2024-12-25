@@ -1,6 +1,7 @@
 import unittest
-import f_b_and_k_operators
-import numpy as np
+import f_b_and_k_operators_jax
+from operator_helper import A_b_c_to_block_operator
+import jax.numpy as jnp
 from simsopt import load
 from simsopt.field import CurrentPotentialFourier, CurrentPotentialSolve
 
@@ -20,13 +21,14 @@ class QuadcoilBKTesting(unittest.TestCase):
 
     def test_magnetic(self):
         # Loading testing example
+        # Loading testing example
         winding_surface, plasma_surface = load('surfaces.json')
         cp = CurrentPotentialFourier(
             winding_surface, mpol=4, ntor=4,
             net_poloidal_current_amperes=11884578.094260072,
             net_toroidal_current_amperes=0,
             stellsym=True)
-        cp.set_dofs(np.array([  
+        cp.set_dofs(jnp.array([  
             235217.63668779,  -700001.94517193,  1967024.36417348,
             -1454861.01406576, -1021274.81793687,  1657892.17597651,
             -784146.17389912,   136356.84602536,  -670034.60060171,
@@ -42,40 +44,108 @@ class QuadcoilBKTesting(unittest.TestCase):
             -1050960.33686344,  -970819.1808181 ,  1467168.09965404,
             -198308.0580687 
         ]))
-        cpst = CurrentPotentialSolve(cp, plasma_surface, np.zeros(1024))
+        cpst = CurrentPotentialSolve(cp, plasma_surface, jnp.zeros(1024))
         # Pre-compute some important matrices
-        cpst.B_matrix_and_rhs()
-        (
-            f_B_x_operator, 
-            B_normal, 
-            current_scale, 
-            f_B_scale
-        ) = f_b_and_k_operators.f_B_operator_and_current_scale(cpst)
-        scaled_small_x = np.concatenate([current_scale * cp.get_dofs(), [1]])
-        scaled_x = scaled_small_x[:, None] * scaled_small_x[None, :]
+        cpst.B_matrix_and_rhs()   
+        (A_f_B, b_f_B, c_f_B, B_normal, current_scale) = f_b_and_k_operators_jax.f_B_and_current_scale(
+            gj=cpst.gj,
+            b_e=cpst.b_e,
+            plasma_normal=plasma_surface.normal(),
+            nfp=cp.nfp
+        )
+        print('current_scale is', current_scale)
 
-        ''' Testing the f_B operator '''
+        # Test function for f_B
         def f_B_l2(Phi):
             A_times_phi = B_normal @ Phi
-            f_B = 0.5*np.sum((A_times_phi - cpst.b_e) ** 2) * cp.nfp
+            f_B = 0.5*jnp.sum((A_times_phi - cpst.b_e) ** 2) * cp.nfp
             return(f_B)# Flattening K_dot_nabla_K and scaling
-        assert(np.isclose(
-            np.trace(f_B_x_operator @ scaled_x) * f_B_scale, 
-            f_B_l2(cp.get_dofs())
+
+        phi = cp.get_dofs()
+        scaled_small_x = jnp.concatenate([current_scale * phi, jnp.array([1])])
+        scaled_x = scaled_small_x[:, None] * scaled_small_x[None, :]
+
+        # Testing K
+        A_K, b_K, c_K = f_b_and_k_operators_jax.K(
+            normal=winding_surface.normal(),
+            gammadash1=winding_surface.gammadash1(),
+            gammadash2=winding_surface.gammadash2(),
+            net_poloidal_current_amperes=cp.net_poloidal_current_amperes,
+            net_toroidal_current_amperes=cp.net_toroidal_current_amperes,
+            quadpoints_phi=jnp.array(winding_surface.quadpoints_phi),
+            quadpoints_theta=jnp.array(winding_surface.quadpoints_theta),
+            nfp=winding_surface.nfp, 
+            cp_m=cp.m, 
+            cp_n=cp.n,
+            stellsym=winding_surface.stellsym,
+        )
+        test_K_2 = (A_K@phi)@phi + b_K@phi + c_K
+        test_K_1 = cp.K()
+        assert(jnp.all(jnp.isclose(test_K_1, test_K_2)))
+
+        # Testing K2
+        A_K2, b_K2, c_K2 = f_b_and_k_operators_jax.K2(
+            normal=winding_surface.normal(),
+            gammadash1=winding_surface.gammadash1(),
+            gammadash2=winding_surface.gammadash2(),
+            net_poloidal_current_amperes=cp.net_poloidal_current_amperes,
+            net_toroidal_current_amperes=cp.net_toroidal_current_amperes,
+            quadpoints_phi=winding_surface.quadpoints_phi,
+            quadpoints_theta=winding_surface.quadpoints_theta,
+            nfp=winding_surface.nfp, 
+            cp_m=cp.m, 
+            cp_n=cp.n,
+            stellsym=winding_surface.stellsym,
+        )
+        test_K2_2 = (A_K2@phi)@phi + b_K2@phi + c_K2
+        test_K2_1 = jnp.sum(test_K_2**2, axis=-1)[:A_K2.shape[0]]
+        assert(jnp.all(jnp.isclose(test_K2_1, test_K2_2)))
+
+        # Testing f_B
+        (A_f_B, b_f_B, c_f_B, B_normal, current_scale) = f_b_and_k_operators_jax.f_B_and_current_scale(
+            gj=cpst.gj,
+            b_e=cpst.b_e,
+            plasma_normal=plasma_surface.normal(),
+            nfp=cp.nfp
+        )
+        assert(jnp.isclose(
+            (A_f_B@phi)@phi + b_f_B@phi + c_f_B,
+            f_B_l2(phi)
         ))
 
-        ''' Testing the K operator '''
-        K_operator, K_scale = f_b_and_k_operators.K_operator(cp, current_scale)
-        test_K_2 = np.trace((K_operator @ scaled_x) * K_scale, axis1=-1, axis2=-2)
-        test_K_1 = cp.K()
-        assert(np.all(np.isclose(test_K_1, test_K_2)))
+        # Testing block operators
+        scaled_small_x = jnp.concatenate([current_scale * phi, jnp.array([1])])
+        scaled_x = scaled_small_x[:, None] * scaled_small_x[None, :]
+        K_block_operator, K_scale = A_b_c_to_block_operator(
+            A=A_K, b=b_K, c=c_K, 
+            current_scale=current_scale,
+            normalize=True
+        )
+        K2_block_operator, K2_scale = A_b_c_to_block_operator(
+            A=A_K2, b=b_K2, c=c_K2, 
+            current_scale=current_scale,
+            normalize=True
+        )
+        f_B_block_operator, f_B_scale = A_b_c_to_block_operator(
+            A=A_f_B, b=b_f_B, c=c_f_B, 
+            current_scale=current_scale,
+            normalize=True
+        )
 
-        ''' Testing K l2 operator '''
-        AK_l2_operator, AK_l2_scale = f_b_and_k_operators.K_l2_operator(cp, current_scale)
-        test_K_l2_2 = np.trace((AK_l2_operator @ scaled_x)* AK_l2_scale, axis1=-1, axis2=-2)
-        test_K_l2_1 = np.sum(test_K_2**2, axis=-1)
-        test_K_l2_1 = test_K_l2_1[:test_K_l2_1.shape[0]//cp.nfp, :].flatten()
-        assert(np.all(np.isclose(test_K_l2_1, test_K_l2_2)))
+        # Testing K
+        test_K_3 = jnp.trace(K_block_operator@scaled_x, axis1=-1, axis2=-2) * K_scale
+        assert(jnp.all(jnp.isclose(test_K_1, test_K_3)))
+
+        # Testing K2
+        test_K2_3 = jnp.trace(K2_block_operator@scaled_x, axis1=-1, axis2=-2) * K2_scale
+        assert(jnp.all(jnp.isclose(test_K2_1, test_K2_3)))
+
+        # Testing f_B
+        assert(jnp.isclose(
+            jnp.trace(f_B_block_operator@scaled_x, axis1=-1, axis2=-2) * f_B_scale,
+            f_B_l2(phi)
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()

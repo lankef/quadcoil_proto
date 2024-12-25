@@ -1,5 +1,5 @@
 # Import packages.
-import numpy as np
+import jax.numpy as jnp
 try:
     from shapely.geometry import LineString, MultiPolygon
     from shapely.ops import unary_union, polygonize
@@ -15,18 +15,20 @@ from simsopt.geo import SurfaceRZFourier, SurfaceXYZTensorFourier, plot
 from scipy.spatial import ConvexHull
 from scipy.interpolate import CubicSpline
 # from simsoptpp import WindingSurfaceBn_REGCOIL
-
-avg_order_of_magnitude = lambda x: np.exp(np.average(np.log(np.abs(x[x!=0]))))
+def avg_order_of_magnitude(x):
+    # Remove zeros
+    x_nonzero = jnp.where(x==0, jnp.nan, x)
+    return(jnp.exp(jnp.nanmean(jnp.log(jnp.abs(x_nonzero)))))
 # A helper method. When mode=0, calculates sin(x).
 # Otherwise calculates cos(x)
-sin_or_cos = lambda x, mode: np.where(mode==1, np.sin(x), np.cos(x))
+sin_or_cos = lambda x, mode: jnp.where(mode==1, jnp.sin(x), jnp.cos(x))
 
 ''' Winding surface '''
 # @SimsoptRequires(LineString is not None, "gen_union_winding_surface requires shapely package")
 def callable_RZ_union(vertices_R, vertices_Z):
-    vertices_R_wrapped = np.pad(vertices_R, (0, 1), mode='wrap')
-    vertices_Z_wrapped = np.pad(vertices_Z, (0, 1), mode='wrap')
-    vertices_RZ_i = np.stack((vertices_R_wrapped, vertices_Z_wrapped)).T
+    vertices_R_wrapped = jnp.pad(vertices_R, (0, 1), mode='wrap')
+    vertices_Z_wrapped = jnp.pad(vertices_Z, (0, 1), mode='wrap')
+    vertices_RZ_i = jnp.stack((vertices_R_wrapped, vertices_Z_wrapped)).T
     linestring = LineString(vertices_RZ_i)
     polygon = unary_union(polygonize(unary_union(linestring)))
     # This union may contain multiple polygons. 
@@ -36,8 +38,8 @@ def callable_RZ_union(vertices_R, vertices_Z):
         poly_list = list(polygon.geoms)
         for p in poly_list:
             area_list.append(p.area)
-        polygon = poly_list[np.argmax(area_list)]
-    union_vertices = np.array(polygon.exterior.coords).T
+        polygon = poly_list[jnp.argmax(area_list)]
+    union_vertices = jnp.array(polygon.exterior.coords).T
     union_vertices_R_periodic = union_vertices[0]
     union_vertices_Z_periodic = union_vertices[1]
     return(
@@ -47,7 +49,7 @@ def callable_RZ_union(vertices_R, vertices_Z):
 
 def callable_RZ_conv(vertices_R, vertices_Z):
     ConvexHull_i = ConvexHull(
-        np.array([
+        jnp.array([
             vertices_R,
             vertices_Z
         ]).T
@@ -56,8 +58,8 @@ def callable_RZ_conv(vertices_R, vertices_Z):
     # Obtaining vertices
     vertices_R_new = vertices_R[vertices_i]
     vertices_Z_new = vertices_Z[vertices_i]
-    vertices_R_periodic = np.append(vertices_R_new, vertices_R_new[0])
-    vertices_Z_periodic = np.append(vertices_Z_new, vertices_Z_new[0])
+    vertices_R_periodic = jnp.append(vertices_R_new, vertices_R_new[0])
+    vertices_Z_periodic = jnp.append(vertices_Z_new, vertices_Z_new[0])
     return(vertices_R_periodic, vertices_Z_periodic)
 
 def gen_conv_winding_surface(
@@ -122,8 +124,8 @@ def gen_callable_winding_surface(
         stellsym=plasma_surface.stellsym, 
         mpol=plasma_surface.mpol,
         ntor=plasma_surface.ntor,
-        quadpoints_phi=np.linspace(0, 1, n_phi, endpoint=False),
-        quadpoints_theta=np.linspace(0, 1, n_theta, endpoint=False),
+        quadpoints_phi=jnp.linspace(0, 1, n_phi, endpoint=False),
+        quadpoints_theta=jnp.linspace(0, 1, n_theta, endpoint=False),
     )
     offset_surface.set_dofs(plasma_surface.to_RZFourier().get_dofs())
     offset_surface.extend_via_normal(d_expand)
@@ -132,9 +134,9 @@ def gen_callable_winding_surface(
     # To avoid this, we create a new surface by taking each poloidal cross section's 
     # convex hull.
     gamma = offset_surface.gamma().copy()
-    gamma_R = np.linalg.norm([gamma[:,:,0], gamma[:,:,1]], axis=0)
+    gamma_R = jnp.linalg.norm([gamma[:,:,0], gamma[:,:,1]], axis=0)
     gamma_Z = gamma[:,:,2]
-    gamma_new = np.zeros_like(gamma)
+    gamma_new = jnp.zeros_like(gamma)
 
     for i_phi in range(gamma.shape[0]):
         phi_i = offset_surface.quadpoints_phi[i_phi]
@@ -151,21 +153,21 @@ def gen_callable_winding_surface(
         # Temporarily vertically the cross section.
         # For centering the theta=0 curve to be along 
         # the projection of the axis to the outboard side.
-        Z_center_i = np.average(vertices_Z_periodic_i[:-1])
+        Z_center_i = jnp.average(vertices_Z_periodic_i[:-1])
         vertices_Z_periodic_i = vertices_Z_periodic_i - Z_center_i
 
         # Parameterize the series of vertices with 
         # arc length
-        delta_R = np.diff(vertices_R_periodic_i)
-        delta_Z = np.diff(vertices_Z_periodic_i)
-        segment_length = np.sqrt(delta_R**2 + delta_Z**2)
-        arc_length = np.cumsum(segment_length)
-        arc_length_periodic = np.concatenate(([0], arc_length))
+        delta_R = jnp.diff(vertices_R_periodic_i)
+        delta_Z = jnp.diff(vertices_Z_periodic_i)
+        segment_length = jnp.sqrt(delta_R**2 + delta_Z**2)
+        arc_length = jnp.cumsum(segment_length)
+        arc_length_periodic = jnp.concatenate(([0], arc_length))
         arc_length_periodic_norm = arc_length_periodic/arc_length_periodic[-1]
         # Interpolate
         spline_i = CubicSpline(
             arc_length_periodic_norm, 
-            np.array([vertices_R_periodic_i, vertices_Z_periodic_i]).T,
+            jnp.array([vertices_R_periodic_i, vertices_Z_periodic_i]).T,
             bc_type='periodic'
         )
         # Calculating the phase shift in quadpoints_theta needed 
@@ -175,7 +177,7 @@ def gen_callable_winding_surface(
         root_RZ_i = spline_i(Z_roots)
         root_R_i = root_RZ_i[:, 0]
         # Choose the outboard root as theta=0
-        phase_shift = Z_roots[np.argmax(root_R_i)]
+        phase_shift = Z_roots[jnp.argmax(root_R_i)]
         # Re-calculate R and Z from uniformly spaced theta
         conv_gamma_RZ_i = spline_i(offset_surface.quadpoints_theta + phase_shift)
         conv_gamma_R_i = conv_gamma_RZ_i[:, 0]
@@ -183,8 +185,8 @@ def gen_callable_winding_surface(
         # Remove the temporary offset introduced earlier
         conv_gamma_Z_i = conv_gamma_Z_i + Z_center_i
         # Calculate X and Y
-        conv_gamma_X_i = conv_gamma_R_i*np.cos(phi_i*np.pi*2)
-        conv_gamma_Y_i = conv_gamma_R_i*np.sin(phi_i*np.pi*2)
+        conv_gamma_X_i = conv_gamma_R_i*jnp.cos(phi_i*jnp.pi*2)
+        conv_gamma_Y_i = conv_gamma_R_i*jnp.sin(phi_i*jnp.pi*2)
         gamma_new[i_phi, :, 0] = conv_gamma_X_i
         gamma_new[i_phi, :, 1] = conv_gamma_Y_i
         gamma_new[i_phi, :, 2] = conv_gamma_Z_i
@@ -208,7 +210,7 @@ def gen_callable_winding_surface(
         stellsym=plasma_surface.stellsym, 
         mpol=mpol, 
         ntor=ntor, 
-        quadpoints_phi=np.arange(len_phi_full)/len_phi_full, 
+        quadpoints_phi=jnp.arange(len_phi_full)/len_phi_full, 
         quadpoints_theta=plasma_surface.quadpoints_theta, 
     )
     winding_surface_out.set_dofs(winding_surface_new.get_dofs())
@@ -226,8 +228,8 @@ def gen_normal_winding_surface(source_surface, d_expand):
         stellsym=source_surface.stellsym, 
         mpol=source_surface.mpol, 
         ntor=source_surface.ntor, 
-        quadpoints_phi=np.arange(len_phi_full_fp)/len_phi_full_fp, 
-        quadpoints_theta=np.arange(len_theta)/len_theta, 
+        quadpoints_phi=jnp.arange(len_phi_full_fp)/len_phi_full_fp, 
+        quadpoints_theta=jnp.arange(len_theta)/len_theta, 
     )
     winding_surface.set_dofs(source_surface.get_dofs())
     winding_surface.extend_via_normal(d_expand)
@@ -252,14 +254,14 @@ def project_arr_coord(
     # shape of operator is 
     # (n_grid_phi, n_grid_theta, 3, n_dof, n_dof)
     # We take the dot product between K and unit vectors.
-    operator_1 = np.sum(unit1[:,:,:,None]*operator_reshaped, axis=2)
-    operator_2 = np.sum(unit2[:,:,:,None]*operator_reshaped, axis=2)
-    operator_3 = np.sum(unit3[:,:,:,None]*operator_reshaped, axis=2)
+    operator_1 = jnp.sum(unit1[:,:,:,None]*operator_reshaped, axis=2)
+    operator_2 = jnp.sum(unit2[:,:,:,None]*operator_reshaped, axis=2)
+    operator_3 = jnp.sum(unit3[:,:,:,None]*operator_reshaped, axis=2)
 
     operator_1_nfp_recovered = operator_1.reshape([len_phi, len_theta] + operator_shape_rest)
     operator_2_nfp_recovered = operator_2.reshape([len_phi, len_theta] + operator_shape_rest)
     operator_3_nfp_recovered = operator_3.reshape([len_phi, len_theta] + operator_shape_rest)
-    operator_comp_arr = np.stack([
+    operator_comp_arr = jnp.stack([
         operator_1_nfp_recovered,
         operator_2_nfp_recovered,
         operator_3_nfp_recovered
@@ -271,16 +273,16 @@ def project_arr_cylindrical(
         operator,
     ):
     # Keeping only the x, y components
-    r_unit = np.zeros_like(gamma)
-    r_unit[:, :, -1] = 0
+    r_unit = jnp.zeros_like(gamma)
+    r_unit = r_unit.at[:, :, -1].set(0)
     # Calculating the norm and dividing the x, y components by it
-    r_unit[:, :, :-1] = gamma[:, :, :-1] / np.linalg.norm(gamma, axis=2)[:, :, None]
+    r_unit = r_unit.at[:, :, :-1].set(gamma[:, :, :-1] / jnp.linalg.norm(gamma, axis=2)[:, :, None])
 
     # Setting Z unit to 1
-    z_unit = np.zeros_like(gamma)
-    z_unit[:,:,-1]=1
+    z_unit = jnp.zeros_like(gamma)
+    z_unit = z_unit.at[:,:,-1].set(1)
 
-    phi_unit = np.cross(z_unit, r_unit)
+    phi_unit = jnp.cross(z_unit, r_unit)
     return(
         project_arr_coord(
             operator,
@@ -404,8 +406,8 @@ def change_cp_resolution(cp: CurrentPotentialFourier, n_phi:int, n_theta:int):
         stellsym=cp.winding_surface.stellsym, 
         mpol=cp.winding_surface.mpol, 
         ntor=cp.winding_surface.ntor,
-        quadpoints_phi=np.linspace(0,1,n_phi), 
-        quadpoints_theta=np.linspace(0,1,n_theta)
+        quadpoints_phi=jnp.linspace(0,1,n_phi), 
+        quadpoints_theta=jnp.linspace(0,1,n_theta)
     )
     winding_surface_new.set_dofs(cp.winding_surface.get_dofs())
 
@@ -440,8 +442,8 @@ def sdp_helper_last_col(n_item, n_X):
 # last row/col of X.
 # n_X is the size of X.
 def sdp_helper_get_elem(a, b, n_X):
-    matrix = np.zeros((n_X,n_X))
-    matrix[a,b]=1
+    matrix = jnp.zeros((n_X,n_X))
+    matrix = matrix.at[a,b].set(1)
     return(matrix)
 
 # This matrix creates an (n+1, n+1) matrix B
@@ -451,7 +453,7 @@ def sdp_helper_get_elem(a, b, n_X):
 # tr(A_ij@Phi)-p <= b_ij
 # tr(A_ij@Phi)+p >= b_ij
 def sdp_helper_p_inequality(matrix_A, p_sign):
-    n_X = np.shape(matrix_A)[0]+1
+    n_X = jnp.shape(matrix_A)[0]+1
     return(sdp_helper_expand_and_add_diag(matrix_A, -1, p_sign, n_X))
 
 # This matrix creates an (n_X, n_X) matrix B
@@ -462,8 +464,8 @@ def sdp_helper_p_inequality(matrix_A, p_sign):
 # tr(A_ij@Phi)-p <= b_ij
 # tr(A_ij@Phi)+p >= b_ij
 def sdp_helper_expand_and_add_diag(matrix_A, n_p, p_sign, n_X):
-    n_A = np.shape(matrix_A)[0]
-    matrix = np.zeros((n_X, n_X))
+    n_A = jnp.shape(matrix_A)[0]
+    matrix = jnp.zeros((n_X, n_X))
     matrix[:n_A,:n_A]=matrix_A
     matrix[n_p,n_p]=p_sign
     return(matrix)
@@ -486,11 +488,11 @@ def last_exact_i_X_list(X_value_list, theshold=1e-5):
     second_max_eig_list = []
     eig_list=[]
     for i in range(len(X_value_list)):
-        eigvals, _ = np.linalg.eig(X_value_list[i][:-1, :-1])
+        eigvals, _ = jnp.linalg.eig(X_value_list[i][:-1, :-1])
         eig_list.append(eigvals)
-        second_max_eig_list.append(np.sort(np.abs(eigvals))[-2])
-    last_exact_i = np.argwhere(
-        np.max(np.abs(eig_list)[:, 1:], axis=1)<theshold
+        second_max_eig_list.append(jnp.sort(jnp.abs(eigvals))[-2])
+    last_exact_i = jnp.argwhere(
+        jnp.max(jnp.abs(eig_list)[:, 1:], axis=1)<theshold
     ).flatten()[-1]
     return(last_exact_i)
 
@@ -504,7 +506,7 @@ def find_most_similar(Phi_list, f, f_value):
     for i_case in range(len(Phi_list)):
         Phi_l2_i = Phi_list[i_case]
         f_i = f(Phi_l2_i)
-        f_diff = np.abs(f_i - f_value)
+        f_diff = jnp.abs(f_i - f_value)
         if f_diff<min_f_diff:
             most_similar_index = i_case
             min_f_diff = f_diff
