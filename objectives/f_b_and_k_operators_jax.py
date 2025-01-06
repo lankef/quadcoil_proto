@@ -179,23 +179,23 @@ def K2(
         nfp, cp_m, cp_n,
         stellsym,
     )
-    AK = AK[
-        :AK.shape[0]//nfp,
-        :,
-        :,
-        :,
-    ]
-    # Take only one field period
-    bK = bK[
-        :bK.shape[0]//nfp,
-        :,
-        :,
-    ]
+    # AK = AK[
+    #     :AK.shape[0]//nfp,
+    #     :,
+    #     :,
+    #     :,
+    # ]
+    # # Take only one field period
+    # bK = bK[
+    #     :bK.shape[0]//nfp,
+    #     :,
+    #     :,
+    # ]
     # To fill the part of ther operator representing
     # 2nd order coefficients
-    A_K2 = jnp.matmul(jnp.swapaxes(AK, -1, -2),AK)
-    b_K2 = 2*jnp.sum(AK*bK[:,:, :, None], axis=-2)
-    c_K2 = jnp.sum(bK*bK, axis=-1)
+    A_K2 = jnp.matmul(jnp.swapaxes(AK, -1, -2), AK)
+    b_K2 = 2*jnp.sum(AK * bK[:, :, :, None], axis=-2)
+    c_K2 = jnp.sum(bK * bK, axis=-1)
     return(A_K2, b_K2, c_K2)
 
 @partial(jit, static_argnames=[
@@ -233,9 +233,10 @@ def K_theta(
     )
     K_theta_shaped = (trig_diff_m_i_n_i@partial_phi)
     # Take 1 field period
-    K_theta_shaped = K_theta_shaped[:K_theta_shaped.shape[0]//nfp, :]
-    K_theta = K_theta_shaped.reshape((-1, K_theta_shaped.shape[-1]))
-    A_K_theta = jnp.zeros((K_theta.shape[0], K_theta.shape[1],  K_theta.shape[1]))
+    # K_theta_shaped = K_theta_shaped[:K_theta_shaped.shape[0]//nfp, :]
+    # K_theta = K_theta_shaped.reshape((-1, K_theta_shaped.shape[-1]))
+    K_theta = K_theta_shaped
+    A_K_theta = jnp.zeros((K_theta.shape[0], K_theta.shape[1],  K_theta.shape[2],  K_theta.shape[2]))
     b_K_theta = K_theta
-    c_K_theta = net_poloidal_current_amperes*jnp.ones(K_theta.shape[0])
+    c_K_theta = net_poloidal_current_amperes*jnp.ones((K_theta.shape[0], K_theta.shape[1]))
     return(A_K_theta, b_K_theta, c_K_theta)

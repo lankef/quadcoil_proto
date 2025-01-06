@@ -37,6 +37,9 @@ def cvxpy_no_windowpane(cp, current_scale, X):
         cp.nfp, cp.m, cp.n,
         cp.stellsym,
     )
+    A_K_theta = A_K_theta.reshape((-1, A_K_theta.shape[-2], A_K_theta.shape[-1]))
+    b_K_theta = b_K_theta.reshape((-1, b_K_theta.shape[-1]))
+    c_K_theta = c_K_theta.flatten()
     K_theta_operator, K_theta_scale = A_b_c_to_block_operator(
         A=A_K_theta, b=b_K_theta, c=c_K_theta, 
         current_scale=current_scale,

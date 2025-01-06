@@ -120,7 +120,6 @@ def plot_coil_Phi_IG(
     else:
         plt.close()
     fig = plt.figure(**kwargs)
-    fig.set_dpi(400)
     ax = fig.add_subplot(projection='3d')
 
     norm = colors.Normalize(vmin=np.min(Phi), vmax=np.max(Phi), clip=True)

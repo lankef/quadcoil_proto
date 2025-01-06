@@ -90,24 +90,22 @@ def solve_constrained(
     # if second_order_iter:
     #     gx_h_eq = jacobian(h_eq)
 
-    # A simple convergence condition.
-    # Tests whether the converegnce slows to a certain 
-    # rate and the constraints are satisfied.
+    # True when non-convergent.
     @jit
-    def convergence_criterion(dict_in):
-        conv = dict_in['conv']
+    def outer_convergence_criterion(dict_in):
+        # conv = dict_in['conv']
         x_k = dict_in['x_k']
-        return(jnp.logical_not(
+        return(
             # This is the convergence condition (True when converges)
-            jnp.logical_or(
-                jnp.all(jnp.array([
-                    jnp.max(g_ineq(x_k)) <= tol_outer,
-                    jnp.max(jnp.abs(h_eq(x_k))) <= tol_outer,
-                    conv <= tol_outer
-                ])), 
-                dict_in['current_niter'] >= max_iter_outer
+            jnp.logical_and(
+                dict_in['current_niter'] <= max_iter_outer,
+                jnp.any(jnp.array([
+                    jnp.max(g_ineq(x_k)) >= tol_outer,
+                    jnp.max(h_eq(x_k)) >= tol_outer,
+                    jnp.min(h_eq(x_k)) <= -tol_outer,
+                ]))
             )
-        ))
+        )
         # return(jnp.logical_or(
         #     jnp.max(jnp.abs(opt_1)) >= tol_outer,
         #     jnp.max(jnp.abs(opt_2)) >= tol_outer
@@ -131,7 +129,8 @@ def solve_constrained(
                 jnp.sum(h_eq(x)**2) 
                 + jnp.sum(gplus(x, mu_k, c_k)**2)
             )
-        ) # Eq (10) on p160 of Constrained Optimization and Multiplier Method
+        ) 
+        # Eq (10) on p160 of Constrained Optimization and Multiplier Method
         # Solving a stage of the problem
         x_k, final_state = run_opt(x_km1, l_k, opt, max_iter_inner, tol_inner)
 
@@ -156,36 +155,31 @@ def solve_constrained(
             }
             return(dict_out, history_out)
         return(dict_out)
+    init_dict = body_fun_augmented_lagrangian({
+        'conv': 100,
+        'x_k': x_init,
+        'c_k': c_init,
+        'lam_k': lam_init,
+        'mu_k': mu_init,
+        'current_niter': 1,
+    })
     if scan_mode:
         result, history = scan(
             f=body_fun_augmented_lagrangian,
-            init={
-                'conv': 100,
-                'x_k': x_init,
-                'c_k': c_init,
-                'lam_k': lam_init,
-                'mu_k': mu_init,
-                'current_niter': 1,
-            },
+            init=init_dict,
             length=max_iter_outer
         )
         return(result, history)
     else:
         result = while_loop(
-            cond_fun=convergence_criterion,
+            cond_fun=outer_convergence_criterion,
             body_fun=body_fun_augmented_lagrangian,
-            init_val={
-                'conv': 100,
-                'x_k': x_init,
-                'c_k': c_init,
-                'lam_k': lam_init,
-                'mu_k': mu_init,
-                'current_niter': 1,
-            },
+            init_val=init_dict,
         )
         return(result)
 
 @partial(jit, static_argnames=[
+    'c_init', # Should this be static?
     'opt',
     'c_growth_rate',
     'tol_outer',
