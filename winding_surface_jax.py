@@ -2,9 +2,13 @@
 import jax.numpy as jnp
 # import matplotlib.pyplot as plt
 from jax import jit, lax, vmap
+from jax.lax import while_loop
 from jax.scipy.special import factorial
 from functools import partial
 from interpax import interp1d
+import lineax as lx
+import numpy as np
+import pyvista as pv
 
 ''' Plotting '''
 # import pyvista as pv
@@ -45,7 +49,6 @@ def gamma_and_field_to_vtk(gamma, f, name):
     # Save the grid to a VTK file for ParaView
     grid.save(name)
 
-
 def gamma_and_scalar_field_to_vtk(xyz_data, scalar_data, name):
     # Assuming `xyz_data` is your array of shape (N, M, 3) storing the x, y, z coordinates
     # and `scalar_data` is your array of shape (N, M) storing the scalar field
@@ -81,7 +84,7 @@ def replace_first_nan(xs, val):
         return(carry, x)
     return(lax.scan(f=f_modify_first_nan, init=jnp.array([val, 1]), xs=xs)[1])
 
-# Remove move all the nans from an 1d array to the end of the array
+# Move all the nans from an 1d array to the end of the array
 def move_nans(xs):
     def f_append(carry, x):
         # Carry has the same size as xs. x is scalar.
@@ -90,6 +93,7 @@ def move_nans(xs):
 
     return(lax.scan(f=f_append, init=jnp.full_like(xs, jnp.nan), xs=xs)[0])
 
+# replace all nans with the first element
 def move_nans_and_pad(xs):
     xs_new = move_nans(xs)
     xs_new = jnp.where(jnp.isnan(xs_new), xs_new[0], xs_new)
@@ -390,7 +394,7 @@ def dof_to_normal_op(
     )
     return(jnp.cross(A_gammadash1[:, :, :, :, None], A_gammadash2[:, :, :, None, :], axis=-3))
 
-@partial(jit, static_argnames=['mpol', 'ntor', 'lam_tikhnov', 'lam_gaussian', 'stellsym', 'nfp'])
+@partial(jit, static_argnames=['nfp', 'stellsym', 'mpol', 'ntor', 'lam_tikhnov', 'lam_gaussian',])
 def fit_surfacerzfourier(
         phi_grid, theta_grid, 
         r_fit, z_fit, 
@@ -415,7 +419,11 @@ def fit_surfacerzfourier(
     max_r_slice = jnp.max(r_fit, axis=1)[:, None]
     min_r_slice = jnp.min(r_fit, axis=1)[:, None]
     weight = jnp.exp(-(lam_gaussian * (r_fit-min_r_slice)/(max_r_slice-min_r_slice))**2) * custom_weight
-    print('weight', weight.shape)
+    # A and b of the lstsq problem.
+    # A_lstsq is a function of phi_grid and theta_grid
+    # b_lstsq is differentiable.
+    # A_lstsq has shape: [nphi, ntheta, 2(rz), ndof]
+    # b_lstsq has shape: [nphi, ntheta, 2(rz)]
     A_lstsq = A_lstsq * weight[:, :, None, None]
     b_lstsq = b_lstsq * weight[:, :, None]
     A_lstsq = A_lstsq.reshape(-1, A_lstsq.shape[-1])
@@ -423,8 +431,14 @@ def fit_surfacerzfourier(
 
     # Tikhnov regularization for higher harmonics
     lam = lam_tikhnov * jnp.average(A_lstsq.T.dot(b_lstsq)) * jnp.diag(m_2_n_2)
-    dofs_expand, resid, rank, s = jnp.linalg.lstsq(A_lstsq.T.dot(A_lstsq) + lam, A_lstsq.T.dot(b_lstsq))
-    return(dofs_expand, resid)
+    
+    # The lineax call fulfills the same purpose as the following:
+    # dofs_expand, resid, rank, s = jnp.linalg.lstsq(A_lstsq.T.dot(A_lstsq) + lam, A_lstsq.T.dot(b_lstsq))
+    # but is faster and more robust to gradients.
+    operator = lx.MatrixLinearOperator(A_lstsq.T.dot(A_lstsq) + lam)
+    solver = lx.QR()  # or lx.AutoLinearSolver(well_posed=None)
+    solution = lx.linear_solve(operator, A_lstsq.T.dot(b_lstsq), solver)
+    return(solution.value)
 
 # An approximation for unit normal.
 # and include the endpoints
@@ -437,13 +451,108 @@ gen_rot_matrix = lambda theta: jnp.array([
 # For 2d inputs
 move_nans_and_pad_vmap = vmap(move_nans_and_pad)
 
+def remove_dup(arr):
+    # Remove duplicate items one at a time
+    def iter(arr):
+        arr_p1 = jnp.roll(arr, 1)
+        arr_m1 = jnp.roll(arr, -1)
+        return(jnp.where(arr_m1 == arr, (arr_p1 + arr) / 2, arr))
+
+    # When true, keep looping
+    def cond(arr):
+        arr_m1 = jnp.roll(arr, -1)
+        return(jnp.any(arr_m1 == arr))
+
+    return(while_loop(cond, iter, arr))
+
+remove_dup_vmap = vmap(remove_dup)
+
+
+@partial(jit, static_argnames=[
+    'nfp', 'stellsym', 
+    'mpol', 'ntor', 
+    'tol_expand', 'lam_tikhnov'
+])
+def gen_winding_surface_atan(
+        gamma_plasma, d_expand, 
+        nfp, stellsym,
+        unitnormal=None,
+        mpol=10, ntor=10,
+        tol_expand=0.9,
+        lam_tikhnov=0.9,
+        ):
+    # A simple winding surface generator with less intermediate quantities.
+    # only works for large offset distances, where center (from the unweighted
+    # avg of the quadrature points' rz coordinate) of the offset surface's rz cross sections
+    # lay within the cross sections. 
+
+    theta = 2 * jnp.pi / nfp
+    rotation_matrix = gen_rot_matrix(theta)
+    rotation_matrix_neg = gen_rot_matrix(-theta)
+
+    # Approximately calculating the normal vector. Alternatively, the normal
+    # can be provided, but this will make the Jacobian matrix larger and lead to longer compile time.
+    if unitnormal is None:
+        xyz_rotated = gamma_plasma[0, :, :] @ rotation_matrix.T
+        gamma_plasma_phi_rolled = jnp.append(gamma_plasma[1:, :, :], xyz_rotated[None, :, :], axis=0)
+        delta_phi = gamma_plasma_phi_rolled - gamma_plasma
+        delta_theta = jnp.roll(gamma_plasma, 1, axis=1) - gamma_plasma
+        normal_approx = jnp.cross(delta_theta, delta_phi)
+        unitnormal = normal_approx / jnp.linalg.norm(normal_approx, axis=-1)[:,:,None]
+    gamma_plasma_expand = gamma_plasma + unitnormal * d_expand
+    print('gamma_plasma_expand', gamma_plasma_expand.shape)
+
+    
+    if stellsym:
+        next_fp = gamma_plasma[:gamma_plasma.shape[0]//2] @ rotation_matrix.T
+        last_fp = gamma_plasma[gamma_plasma.shape[0]//2:] @ rotation_matrix_neg.T
+    else:
+        next_fp = gamma_plasma @ rotation_matrix.T
+        last_fp = gamma_plasma @ rotation_matrix_neg.T
+        # Copy the gamma from the next and last fp.
+    gamma_plasma_dist = jnp.concatenate([last_fp, gamma_plasma, next_fp], axis=0)
+
+    # The original uniform offset. Has self-intersections.
+    # Tested to be differentiable.
+    r_expand = jnp.sqrt(gamma_plasma_expand[:, :, 1]**2 + gamma_plasma_expand[:, :, 0]**2)
+    phi_expand = jnp.arctan2(gamma_plasma_expand[:, :, 1], gamma_plasma_expand[:, :, 0]) / jnp.pi / 2 
+    z_expand = gamma_plasma_expand[:, :, 2]
+
+    r_center = jnp.average(r_expand, axis=-1)
+    z_center = jnp.average(z_expand, axis=-1)
+
+    min_dist_expand = jnp.min((
+        jnp.linalg.norm(gamma_plasma_expand[:, :, None, None, :] - gamma_plasma_dist[None, None, :, :, :], axis=-1)
+    ), axis=(2, 3))
+
+    weight_remove_invalid = jnp.where(
+        min_dist_expand[:, :] < tol_expand * d_expand, 
+        0., 
+        1.
+    )
+
+    theta_atan = jnp.arctan2(z_expand-z_center, r_expand-r_center)/jnp.pi/2
+    dofs_expand = fit_surfacerzfourier(
+        mpol=mpol,
+        ntor=ntor,
+        theta_grid=theta_atan, # theta_interp
+        phi_grid=phi_expand,
+        r_fit=r_expand,
+        z_fit=z_expand,
+        nfp=nfp, stellsym=stellsym,
+        lam_tikhnov=lam_tikhnov, lam_gaussian=0.,
+        custom_weight=weight_remove_invalid,
+    )
+
+    return(dofs_expand)
+
 @partial(jit, static_argnames=[
     'nfp', 'stellsym', 
     'n_theta', 'n_phi', 'n_theta_interp', 
     'mpol', 'ntor', 
-    'tol_expand', 'interp1d_method', 'lam_tikhnov', 'simple_mode'
+    'tol_expand', 'interp1d_method', 'lam_tikhnov'
 ])
-def gen_winding_surface(
+def gen_winding_surface_arclen(
         gamma_plasma, d_expand, 
         nfp, stellsym,
         unitnormal=None,
@@ -453,9 +562,10 @@ def gen_winding_surface(
         tol_expand=0.9,
         interp1d_method='cubic',
         lam_tikhnov=0.9,
-        simple_mode=False
         ):
-
+    # A more complex winding surface generator robust to 
+    # large plasma indent and small coil-plasma distance. 
+    # DOES NOT work well with autodiff.
     # Create the rotation matrix for rotation around the z-axis. 
     # To correctly calculate coil-plasma distance, one must use at least 3 field periods.
 
@@ -476,19 +586,20 @@ def gen_winding_surface(
 
     
     if stellsym:
-        next_fp = gamma_plasma[:n_phi//2] @ rotation_matrix.T
-        last_fp = gamma_plasma[n_phi//2:] @ rotation_matrix_neg.T
+        next_fp = gamma_plasma[:gamma_plasma.shape[0]//2] @ rotation_matrix.T
+        last_fp = gamma_plasma[gamma_plasma.shape[0]//2:] @ rotation_matrix_neg.T
     else:
         next_fp = gamma_plasma @ rotation_matrix.T
         last_fp = gamma_plasma @ rotation_matrix_neg.T
         # Copy the gamma from the next and last fp.
     gamma_plasma_dist = jnp.concatenate([last_fp, gamma_plasma, next_fp], axis=0)
-
+    print('gamma_plasma_expand', gamma_plasma_expand)
     r_expand = jnp.sqrt(gamma_plasma_expand[:, :, 1]**2 + gamma_plasma_expand[:, :, 0]**2)
     phi_expand = jnp.arctan2(gamma_plasma_expand[:, :, 1], gamma_plasma_expand[:, :, 0]) / jnp.pi / 2 
     z_expand = gamma_plasma_expand[:, :, 2]
+    print('phi_expand', phi_expand)
 
-    stage_1_dofs, stage_1_resid = fit_surfacerzfourier(
+    stage_1_dofs = fit_surfacerzfourier(
         mpol=mpol,
         ntor=ntor,
         phi_grid=phi_expand,
@@ -521,18 +632,9 @@ def gen_winding_surface(
         y_stage_1[:, :, None], 
         z_stage_1[:, :, None]
     ], axis=-1)
-
-
     min_dist_stage_1 = jnp.min((
         jnp.linalg.norm(gamma_stage_1[:, :, None, None, :] - gamma_plasma_dist[None, None, :, :, :], axis=-1)
     ), axis=(2, 3))
-    
-    # For debugging
-    # gamma_remove_invalid = jnp.where(
-    #     min_dist_stage_1[:, :, None] + jnp.zeros_like(gamma_stage_1) < tol_expand * d_expand, 
-    #     jnp.nan, 
-    #     gamma_stage_1
-    # )
 
     r_remove_invalid = jnp.where(
         min_dist_stage_1[:, :] < tol_expand * d_expand, 
@@ -550,7 +652,14 @@ def gen_winding_surface(
     # last append the first element to the end of the array.
     r_for_interp = move_nans_and_pad_vmap(r_remove_invalid)
     z_for_interp = move_nans_and_pad_vmap(z_remove_invalid)
+    # The length of each segment is non-differentiable when zero-length segments
+    # exist. This removes zero-length segments.
+    
+    r_for_interp = move_nans_and_pad_vmap(r_remove_invalid)
+    z_for_interp = move_nans_and_pad_vmap(z_remove_invalid)
 
+    # The recover a new set of quadrature points by interpolating 
+    # from the remaining quadrature points.
     seglen_for_interp = jnp.sqrt(
         (r_for_interp[:, 1:] - r_for_interp[:, :-1])**2
         + (z_for_interp[:, 1:] - z_for_interp[:, :-1])**2
@@ -578,26 +687,8 @@ def gen_winding_surface(
         arclen_theta_interp_norm
     ], axis=1)
 
-
-    ''' DEBUGGING '''
-    # x_interp = jnp.cos(quadpoints_phi_stage_1[:, None] * jnp.pi * 2) * r_interp
-    # y_interp = jnp.sin(quadpoints_phi_stage_1[:, None] * jnp.pi * 2) * r_interp
-    # gamma_interp = jnp.concatenate([
-    #     x_interp[:, :-1, None],
-    #     y_interp[:, :-1, None],
-    #     z_interp[:, :-1, None],
-    # ], axis=-1)
-    # print(gamma_stage_1.shape)
-    # print(gamma_interp.shape)
-    # gamma_and_field_to_vtk(gamma_plasma, unitnormal, 'gamma_unit_normal.vtk')
-    # gamma_and_field_to_vtk(gamma_plasma, unitnormal * d_expand, 'gamma_expand_vector.vtk')
-    # gamma_and_scalar_field_to_vtk(gamma_plasma_expand, phi_expand, 'gamma_expand_phi.vtk')
-    # gamma_to_vtk(gamma_plasma_expand, 'gamma_expand.vtk')
-    # gamma_to_vtk(gamma_plasma, 'gamma_plasma.vtk')
-    # gamma_to_vtk(gamma_stage_1, 'gamma_stage_1.vtk')
-    # gamma_to_vtk(gamma_interp, 'gamma_interp.vtk')
-
-    dofs_expand, resid = fit_surfacerzfourier(
+    # Fitting the final Fourier surface
+    dofs_expand = fit_surfacerzfourier(
         mpol=mpol,
         ntor=ntor,
         theta_grid=arclen_theta_interp_norm, # theta_interp

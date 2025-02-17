@@ -5,6 +5,7 @@ import optax.tree_utils as otu
 from jax import jit, vmap
 from jax.lax import while_loop, scan
 from functools import partial
+# import matplotlib.pyplot as plt
 
 lstsq_vmap = vmap(jnp.linalg.lstsq)
 
@@ -51,18 +52,18 @@ def solve_quad_unconstrained(A, b, c):
 # A simple augmented Lagrangian implementation
 # This jit flag is temporary, because we want 
 # derivatives wrt f and g's contents too.
-# @partial(jit, static_argnames=[
-#     'f_obj',
-#     'h_eq',
-#     'g_ineq',
-#     'opt',
-#     'c_growth_rate',
-#     'tol_outer',
-#     'tol_inner',
-#     'max_iter_inner',
-#     'max_iter_outer',
-#     'scan_mode',
-# ])
+@partial(jit, static_argnames=[
+    'f_obj',
+    'h_eq',
+    'g_ineq',
+    'opt',
+    'c_growth_rate',
+    'tol_outer',
+    'tol_inner',
+    'max_iter_inner',
+    'max_iter_outer',
+    'scan_mode',
+])
 def solve_constrained(
         x_init,
         c_init,
@@ -83,12 +84,15 @@ def solve_constrained(
         # convergence test.
         scan_mode=False, 
     ):
+    '''
+    Solves 
+    min f(x)
+    subject to 
+    h(x) = 0, g(x) <= 0
+    '''
 
     # Has shape n_cons_ineq
     gplus = lambda x, mu, c: jnp.max(jnp.array([g_ineq(x), -mu/c]), axis=0)
-
-    # if second_order_iter:
-    #     gx_h_eq = jacobian(h_eq)
 
     # True when non-convergent.
     @jit
@@ -96,27 +100,27 @@ def solve_constrained(
         # conv = dict_in['conv']
         x_k = dict_in['x_k']
         return(
-            # This is the convergence condition (True when converges)
+            # This is the convergence condition (True when not converged yet)
             jnp.logical_and(
                 dict_in['current_niter'] <= max_iter_outer,
                 jnp.any(jnp.array([
-                    jnp.max(g_ineq(x_k)) >= tol_outer,
-                    jnp.max(h_eq(x_k)) >= tol_outer,
-                    jnp.min(h_eq(x_k)) <= -tol_outer,
+                    # if gradient is too large, continue
+                    jnp.any(g_ineq(x_k) >= tol_outer), 
+                    # if equality constraints are too large or small, continue
+                    jnp.any(h_eq(x_k) >= tol_outer),
+                    jnp.any(h_eq(x_k) <= -tol_outer),
+                    # if inequality constraints are too large, continue
+                    jnp.any(g_ineq(x_k) >= tol_outer)
                 ]))
             )
         )
-        # return(jnp.logical_or(
-        #     jnp.max(jnp.abs(opt_1)) >= tol_outer,
-        #     jnp.max(jnp.abs(opt_2)) >= tol_outer
-        # ))
 
     # Recursion
     # lam_k = lam_init
     # mu_k = mu_init
     # c_k = 10
     # x_km1 = phi_scaled_init
-    @jit
+    # @jit
     def body_fun_augmented_lagrangian(dict_in, x_dummy=None):
         x_km1 = dict_in['x_k']
         c_k = dict_in['c_k']
@@ -178,16 +182,16 @@ def solve_constrained(
         )
         return(result)
 
-@partial(jit, static_argnames=[
-    'c_init', # Should this be static?
-    'opt',
-    'c_growth_rate',
-    'tol_outer',
-    'tol_inner',
-    'max_iter_inner',
-    'max_iter_outer',
-    'scan_mode',
-])
+# @partial(jit, static_argnames=[
+#     'c_init', # Should this be static?
+#     'opt',
+#     'c_growth_rate',
+#     'tol_outer',
+#     'tol_inner',
+#     'max_iter_inner',
+#     'max_iter_outer',
+#     'scan_mode',
+# ])
 def solve_quad_constrained(
         x_init,
         c_init,

@@ -46,8 +46,9 @@ def cvxpy_no_windowpane(cp, current_scale, X):
         normalize=True
     )
     constraints = []
-    if cp.stellsym:
-        loop_size = K_theta_operator.shape[0]//2
+    if False:
+    # if cp.stellsym:
+        loop_size = K_theta_operator.shape[0]
     else:
         loop_size = K_theta_operator.shape[0]
     # This if statement distinguishes the sign of 
@@ -90,7 +91,8 @@ def cvxpy_create_integrated_L1_from_array(cpst, grid_3d_operator, X, stellsym):
 
     normN_prime = np.linalg.norm(cpst.winding_surface.normal(), axis=-1)
     normN_prime = normN_prime.flatten()
-    if stellsym:
+    # if stellsym:
+    if False:
         loop_size = grid_3d_operator.shape[0]//2
         jacobian_prime = normN_prime[:normN_prime.shape[0]//cpst.winding_surface.nfp//2]
     else:
@@ -134,7 +136,8 @@ def cvxpy_create_Linf_from_array(grid_3d_operator, X, stellsym):
     Linf: Adding a lam*Linf term in the 
     objective adds an L1 norm term.
     '''
-    if stellsym:
+    # if stellsym:
+    if False:
         loop_size = grid_3d_operator.shape[0]//2
     else:
         loop_size = grid_3d_operator.shape[0]
@@ -175,7 +178,8 @@ def cvxpy_create_Linf_leq_from_array(grid_3d_operator, grid_3d_operator_scale, g
     Linf: Adding a lam*Linf term in the 
     objective adds an L1 norm term.
     '''
-    if stellsym:
+    # if stellsym:
+    if False:
         loop_size = grid_3d_operator.shape[0]//2
     else:
         loop_size = grid_3d_operator.shape[0]
