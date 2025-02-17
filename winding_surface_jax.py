@@ -467,19 +467,22 @@ def remove_dup(arr):
 
 remove_dup_vmap = vmap(remove_dup)
 
+# default values
+tol_expand_default = 0.9
+lam_tikhnov_default = 0.2
 
 @partial(jit, static_argnames=[
     'nfp', 'stellsym', 
     'mpol', 'ntor', 
     'tol_expand', 'lam_tikhnov'
 ])
-def gen_winding_surface_atan(
+def gen_winding_surface_atan_legacy(
         gamma_plasma, d_expand, 
         nfp, stellsym,
         unitnormal=None,
         mpol=10, ntor=10,
-        tol_expand=0.9,
-        lam_tikhnov=0.9,
+        tol_expand=tol_expand_default,
+        lam_tikhnov=lam_tikhnov_default,
         ):
     # A simple winding surface generator with less intermediate quantities.
     # only works for large offset distances, where center (from the unweighted
@@ -499,8 +502,8 @@ def gen_winding_surface_atan(
         delta_theta = jnp.roll(gamma_plasma, 1, axis=1) - gamma_plasma
         normal_approx = jnp.cross(delta_theta, delta_phi)
         unitnormal = normal_approx / jnp.linalg.norm(normal_approx, axis=-1)[:,:,None]
+    
     gamma_plasma_expand = gamma_plasma + unitnormal * d_expand
-    print('gamma_plasma_expand', gamma_plasma_expand.shape)
 
     
     if stellsym:
@@ -531,7 +534,12 @@ def gen_winding_surface_atan(
         1.
     )
 
-    theta_atan = jnp.arctan2(z_expand-z_center, r_expand-r_center)/jnp.pi/2
+    # print('gamma_plasma_expand', gamma_plasma_expand.shape)
+    # print('z_expand', z_expand.shape)
+    # print('z_center', z_center.shape)
+    # print('r_expand', r_expand.shape)
+    # print('r_center', r_center.shape)
+    theta_atan = jnp.arctan2(z_expand-z_center[:, None], r_expand-r_center[:, None])/jnp.pi/2
     dofs_expand = fit_surfacerzfourier(
         mpol=mpol,
         ntor=ntor,
@@ -545,6 +553,105 @@ def gen_winding_surface_atan(
     )
 
     return(dofs_expand)
+
+
+
+@partial(jit, static_argnames=[
+    'nfp', 'stellsym', 
+    'mpol', 'ntor', 
+    'tol_expand', 'lam_tikhnov'
+])
+def gen_winding_surface_atan(
+        gamma_plasma, d_expand, 
+        nfp, stellsym,
+        unitnormal=None,
+        mpol=10, ntor=10,
+        tol_expand=tol_expand_default,
+        lam_tikhnov=lam_tikhnov_default,
+        ):
+    # A simple winding surface generator with less intermediate quantities.
+    # only works for large offset distances, where center (from the unweighted
+    # avg of the quadrature points' rz coordinate) of the offset surface's rz cross sections
+    # lay within the cross sections. 
+
+    theta = 2 * jnp.pi / nfp
+    rotation_matrix = gen_rot_matrix(theta)
+    rotation_matrix_neg = gen_rot_matrix(-theta)
+
+    # Approximately calculating the normal vector. Alternatively, the normal
+    # can be provided, but this will make the Jacobian matrix larger and lead to longer compile time.
+    if unitnormal is None:
+        xyz_rotated = gamma_plasma[0, :, :] @ rotation_matrix.T
+        gamma_plasma_phi_rolled = jnp.append(gamma_plasma[1:, :, :], xyz_rotated[None, :, :], axis=0)
+        delta_phi = gamma_plasma_phi_rolled - gamma_plasma
+        delta_theta = jnp.roll(gamma_plasma, 1, axis=1) - gamma_plasma
+        normal_approx = jnp.cross(delta_theta, delta_phi)
+        unitnormal = normal_approx / jnp.linalg.norm(normal_approx, axis=-1)[:,:,None]
+    
+    # Copy the next field period 
+    if stellsym:
+        # If stellsym, then only use half of the field period for surface fitting
+        len_phi = gamma_plasma.shape[0]//2
+        gamma_plasma_expand = (
+            gamma_plasma[:len_phi] 
+            + unitnormal[:len_phi] * d_expand)
+        next_fp = gamma_plasma[:len_phi] @ rotation_matrix.T
+        last_fp = gamma_plasma[len_phi:] @ rotation_matrix_neg.T
+        gamma_plasma_dist = jnp.concatenate([last_fp, gamma_plasma], axis=0)
+        # finding center to generate poloidal parameterization
+        r_plasma = jnp.sqrt(gamma_plasma[:len_phi, :, 1]**2 + gamma_plasma[:len_phi, :, 0]**2)
+        z_plasma = gamma_plasma[:len_phi, :, 2]
+        r_center = jnp.average(r_plasma, axis=-1)
+        z_center = jnp.average(z_plasma, axis=-1)
+    else:
+        gamma_plasma_expand = gamma_plasma + unitnormal * d_expand
+        next_fp = gamma_plasma @ rotation_matrix.T
+        last_fp = gamma_plasma @ rotation_matrix_neg.T
+        # Copy the gamma from the next and last fp.
+        gamma_plasma_dist = jnp.concatenate([last_fp, gamma_plasma, next_fp], axis=0)
+        # finding center to generate poloidal parameterization
+        r_plasma = jnp.sqrt(gamma_plasma[:, :, 1]**2 + gamma_plasma[:, :, 0]**2)
+        z_plasma = gamma_plasma[:, :, 2]
+        r_center = jnp.average(r_plasma, axis=-1)
+        z_center = jnp.average(z_plasma, axis=-1)
+    # The original uniform offset. Has self-intersections.
+    # Tested to be differentiable.
+    r_expand = jnp.sqrt(gamma_plasma_expand[:, :, 1]**2 + gamma_plasma_expand[:, :, 0]**2)
+    phi_expand = jnp.arctan2(gamma_plasma_expand[:, :, 1], gamma_plasma_expand[:, :, 0]) / jnp.pi / 2 
+    z_expand = gamma_plasma_expand[:, :, 2]
+
+
+    min_dist_expand = jnp.min((
+        jnp.linalg.norm(gamma_plasma_expand[:, :, None, None, :] - gamma_plasma_dist[None, None, :, :, :], axis=-1)
+    ), axis=(2, 3))
+
+    weight_remove_invalid = jnp.where(
+        min_dist_expand[:, :] < tol_expand * d_expand, 
+        0., 
+        1.
+    )
+    # print('gamma_plasma_expand', gamma_plasma_expand.shape)
+    # print('gamma_plasma_dist', gamma_plasma_dist.shape)
+    # print('z_expand', z_expand.shape)
+    # print('z_center', z_center.shape)
+    # print('r_expand', r_expand.shape)
+    # print('r_center', r_center.shape)
+    theta_atan = jnp.arctan2(z_expand-z_center[:, None], r_expand-r_center[:, None])/jnp.pi/2
+    # gamma_and_scalar_field_to_vtk(weight_remove_invalid[:, :, None] * gamma_plasma_expand, theta_atan, 'ws_new_to_fit.vts')
+    dofs_expand = fit_surfacerzfourier(
+        mpol=mpol,
+        ntor=ntor,
+        theta_grid=theta_atan, # theta_interp
+        phi_grid=phi_expand,
+        r_fit=r_expand,
+        z_fit=z_expand,
+        nfp=nfp, stellsym=stellsym,
+        lam_tikhnov=lam_tikhnov, lam_gaussian=0.,
+        custom_weight=weight_remove_invalid,
+    )
+
+    return(dofs_expand)
+
 
 @partial(jit, static_argnames=[
     'nfp', 'stellsym', 
