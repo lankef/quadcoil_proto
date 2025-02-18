@@ -14,12 +14,12 @@ def eval_quad_scaled(phi_scaled, A, b, c, current_scale, ):
     phi = phi_scaled/current_scale
     return((A@phi)@phi + b@phi + c)
 
-def while_loop_debug(cond_fun, body_fun, init_val):
-    val = init_val
-    while cond_fun(val):
-        val = body_fun(val)
-        print(val)
-    return val
+# def while_loop_debug(cond_fun, body_fun, init_val):
+#     val = init_val
+#     while cond_fun(val):
+#         val = body_fun(val)
+#         print(val)
+#     return val
 
 def run_opt(init_params, fun, opt, max_iter, tol):
     value_and_grad_fun = optax.value_and_grad_from_state(fun)
@@ -41,8 +41,8 @@ def run_opt(init_params, fun, opt, max_iter, tol):
         return (iter_num == 0) | ((iter_num < max_iter) & (err >= tol))
   
     init_carry = (init_params, opt.init(init_params))
-    print('continuing_criterion', continuing_criterion)
-    print('init_carry', init_carry)
+#     print('continuing_criterion', continuing_criterion)
+#     print('init_carry', init_carry)
     final_params, final_state = while_loop(
         continuing_criterion, step, init_carry
     )
@@ -183,7 +183,7 @@ def solve_constrained(
         )
         return(result, history)
     else:
-        result = while_loop_debug(
+        result = while_loop(
             cond_fun=outer_convergence_criterion,
             body_fun=body_fun_augmented_lagrangian,
             init_val=init_dict,
@@ -231,11 +231,11 @@ def solve_quad_constrained(
     else:
         g_ineq=lambda x: eval_quad_scaled(x, A_ineq, b_ineq, c_ineq, current_scale)
     
-    print('x_init', x_init.dtype)
-    print('c_init', c_init)
-    print('lam_init', lam_init.dtype)
-    print('mu_init', mu_init.dtype)
-    print('c_growth_rate', c_growth_rate)
+#     print('x_init', x_init.dtype)
+#     print('c_init', c_init)
+#     print('lam_init', lam_init.dtype)
+#     print('mu_init', mu_init.dtype)
+#     print('c_growth_rate', c_growth_rate)
     return(
         solve_constrained(
             x_init,
