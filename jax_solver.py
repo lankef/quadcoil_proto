@@ -14,7 +14,7 @@ def run_opt_optax(init_params, fun, max_iter, tol, opt, val_and_grad):
         value_and_grad_fun = optax.value_and_grad_from_state(fun)
     else:
         grad_fun = grad(fun)
-  
+    @jit
     def step(carry):
         params, _, count, state = carry
         if val_and_grad:
@@ -132,7 +132,7 @@ def solve_constrained(
     # mu_k = mu_init
     # c_k = 10
     # x_km1 = phi_scaled_init
-    # @jit
+    @jit
     def body_fun_augmented_lagrangian(dict_in, x_dummy=None):
         x_km1 = dict_in['x_k']
         c_k = dict_in['c_k']

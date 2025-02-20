@@ -16,9 +16,11 @@ from scipy.spatial import ConvexHull
 from scipy.interpolate import CubicSpline
 # from simsoptpp import WindingSurfaceBn_REGCOIL
 def avg_order_of_magnitude(x):
+    return(jnp.max(jnp.abs(x)))
+    # The below implementation is not robust in autdiff.
     # Remove zeros
-    x_nonzero = jnp.where(x==0, jnp.nan, x)
-    return(jnp.exp(jnp.nanmean(jnp.log(jnp.abs(x_nonzero)))))
+    # x_nonzero = jnp.where(x==0, jnp.nan, x)
+    # return(jnp.exp(jnp.nanmean(jnp.log(jnp.abs(x_nonzero)))))
 # A helper method. When mode=0, calculates sin(x).
 # Otherwise calculates cos(x)
 sin_or_cos = lambda x, mode: jnp.where(mode==1, jnp.sin(x), jnp.cos(x))
