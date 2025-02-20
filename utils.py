@@ -16,7 +16,9 @@ from scipy.spatial import ConvexHull
 from scipy.interpolate import CubicSpline
 # from simsoptpp import WindingSurfaceBn_REGCOIL
 def avg_order_of_magnitude(x):
-    return(jnp.max(jnp.abs(x)))
+    # Estimating the maximum magnitude for normalizing. 
+    # the appended 1 prevents this from going to zero.
+    return(jnp.max(jnp.append(jnp.abs(x).flatten(), 1.)))
     # The below implementation is not robust in autdiff.
     # Remove zeros
     # x_nonzero = jnp.where(x==0, jnp.nan, x)
