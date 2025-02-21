@@ -11,13 +11,11 @@ from operator_helper import diff_helper
 
 @partial(jit, static_argnames=[
     'nfp',
-    'current_scale',
 ])
-def f_B_and_current_scale(
+def f_B(
         gj, b_e, # Quantities in CurrentPotential
         plasma_normal,
         nfp,
-        current_scale=None
 ):
     '''
     Produces a dimensionless f_B and K operator that act on X by 
@@ -40,18 +38,14 @@ def f_B_and_current_scale(
     normN = jnp.linalg.norm(plasma_normal.reshape(-1, 3), axis=-1)
     # The matrices may not have been precomputed
     B_normal = gj/jnp.sqrt(normN[:, None])
-    # Scaling factor to make X matrix dimensionless. 
-    if current_scale is None:
-        current_scale = avg_order_of_magnitude(B_normal)/avg_order_of_magnitude(b_e)
     ''' f_B operator '''
-    # Scaling blocks of the operator
-    ATA_scaled = B_normal.T@B_normal
-    ATb_scaled = B_normal.T@b_e
-    bTb_scaled = jnp.dot(b_e,b_e)
-    A_f_B = ATA_scaled/2*nfp
-    b_f_B = -ATb_scaled*nfp # the factor of 2 cancelled
-    c_f_B = bTb_scaled/2*nfp
-    return(A_f_B, b_f_B, c_f_B, B_normal, current_scale)
+    ATA = B_normal.T@B_normal
+    ATb = B_normal.T@b_e
+    bTb = jnp.dot(b_e,b_e)
+    A_f_B = ATA/2*nfp
+    b_f_B = -ATb*nfp # the factor of 2 cancelled
+    c_f_B = bTb/2*nfp
+    return(A_f_B, b_f_B, c_f_B, B_normal)
 
 @partial(jit, static_argnames=[
     'nfp', 

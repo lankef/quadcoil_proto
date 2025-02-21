@@ -44,6 +44,9 @@ def run_opt_optax(init_params, fun, max_iter, tol, opt, val_and_grad):
     )
     return final_params
 
+# A scale factor making phi unit-free and order-1 is important
+# because otherwise the gradient may be too shallow.
+# We can't normalize A, b, c to ~1 but not do the same to Phi.
 def eval_quad_scaled(phi_scaled, A, b, c, current_scale, ):
     # Evluates a quadratic function
     phi = phi_scaled/current_scale
