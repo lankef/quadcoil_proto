@@ -653,6 +653,58 @@ def gen_winding_surface_atan(
     return(dofs_expand)
 
 
+# This is necessary to calculate gammadashes.
+
+# @partial(jit, static_argnames=[
+#     'nfp', 
+#     'stellsym', 
+#     'mpol_plasma',
+#     'ntor_plasma',
+#     'mpol_winding',
+#     'ntor_winding',
+# ])
+def plasma_dofs_to_winding_dofs(
+    # Dofs
+    plasma_dofs,
+    # Equilibrium and related parameters
+    # Coil parameters
+    coil_plasma_distance,
+    # Numerical parameters
+    nfp, 
+    stellsym, 
+    mpol_plasma,
+    ntor_plasma,
+    quadpoints_phi_plasma,
+    quadpoints_theta_plasma,
+    mpol_winding=10, 
+    ntor_winding=10,
+):
+
+    theta_mesh_plasma, phi_mesh_plasma = jnp.meshgrid(quadpoints_theta_plasma, quadpoints_phi_plasma)
+
+    ''' Plasma surface calculations'''
+    # Quadrature points
+    gamma_plasma = dof_to_gamma(
+        dofs=plasma_dofs,
+        phi_grid=phi_mesh_plasma, 
+        theta_grid=theta_mesh_plasma, 
+        nfp=nfp, 
+        stellsym=stellsym, 
+        mpol=mpol_plasma, ntor=ntor_plasma)
+    ''' Generating winding surface '''
+
+    winding_dofs = gen_winding_surface_atan(
+        gamma_plasma=gamma_plasma, 
+        d_expand=coil_plasma_distance, 
+        nfp=nfp, stellsym=stellsym,
+        unitnormal=None,
+        mpol=mpol_winding, ntor=ntor_winding,
+        tol_expand=0.9,
+        lam_tikhnov=0.9,
+    )
+    return(winding_dofs, gamma_plasma)
+
+
 @partial(jit, static_argnames=[
     'nfp', 'stellsym', 
     'n_theta', 'n_phi', 'n_theta_interp', 
