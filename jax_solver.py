@@ -2,7 +2,7 @@
 import jax.numpy as jnp
 import optax
 import optax.tree_utils as otu
-from jax import jit, vmap, grad
+from jax import jit, vmap, grad, jacrev, jvp
 import jax 
 from jax.lax import while_loop, scan
 from functools import partial
@@ -17,6 +17,13 @@ def wl_debug(cond_fun, body_fun, init_val):
     while cond_fun(val):
         val = body_fun(val)
     return val
+
+run_opt_lbfgs = lambda init_params, fun, max_iter, ftol, xtol, gtol: \
+    run_opt_optax(init_params, fun, max_iter, ftol, xtol, gtol, opt=optax.lbfgs())
+
+# Not robust. In here for backup purposes.
+def run_opt_bfgs(init_params, fun, max_iter, ftol, xtol, gtol): 
+    return jax.scipy.optimize.minimize(fun=fun, x0=init_params, method='BFGS', tol=gtol, options={'maxiter': max_iter,}).x
 
 def run_opt_optax(init_params, fun, max_iter, ftol, xtol, gtol, opt):
     value_and_grad_fun = optax.value_and_grad_from_state(fun)
@@ -110,16 +117,16 @@ def solve_constrained(
         mu_init=jnp.zeros(1, dtype=jnp.float32),
         g_ineq=lambda x:jnp.zeros(1, dtype=jnp.float32),
         c_growth_rate=1.1,
-        tol_outer=1e-5,
-        ftol_inner=1e-5,
-        xtol_inner=1e-5,
-        gtol_inner=1e-5,
+        tol_outer=1e-7,
+        ftol_inner=1e-7,
+        xtol_inner=1e-7,
+        gtol_inner=1e-7,
         max_iter_inner=500,
         max_iter_outer=20,
         # # Uses jax.lax.scan instead of while_loop.
         # # Enables history and forward diff but disables 
         # # convergence test.
-        # scan_mode=False, 
+        scan_mode=False, 
     ):
     '''
     Solves 
@@ -200,26 +207,26 @@ def solve_constrained(
         'mu_k': mu_init,
         'current_niter': 1,
     })
-    # if scan_mode:
-    #     result, history = scan(
-    #         f=body_fun_augmented_lagrangian,
-    #         init=init_dict,
-    #         length=max_iter_outer
-    #     )
-    #     result['f_k'] = f_obj(result['x_k'])
-    #     # Now we recover the l_k of the last augmented lagrangian iteration.
-    #     c_k = result['c_k']
-    #     lam_k = result['lam_k']
-    #     mu_k = result['mu_k']
-    #     l_k = lambda x: (
-    #         f_obj(x) 
-    #         + lam_k@h_eq(x) 
-    #         + c_k/2 * (
-    #             jnp.sum(h_eq(x)**2) 
-    #             + jnp.sum(gplus(x, mu_k, c_k)**2)
-    #         )
-    #     ) 
-    #     return(result, history, l_k)
+    if scan_mode:
+        result, history = scan(
+            f=body_fun_augmented_lagrangian,
+            init=init_dict,
+            length=max_iter_outer
+        )
+        result['f_k'] = f_obj(result['x_k'])
+        # Now we recover the l_k of the last augmented lagrangian iteration.
+        c_k = result['c_k']
+        lam_k = result['lam_k']
+        mu_k = result['mu_k']
+        l_k = lambda x: (
+            f_obj(x) 
+            + lam_k@h_eq(x) 
+            + c_k/2 * (
+                jnp.sum(h_eq(x)**2) 
+                + jnp.sum(gplus(x, mu_k, c_k)**2)
+            )
+        ) 
+        return(result, history)
     result = while_loop(
         cond_fun=outer_convergence_criterion,
         body_fun=body_fun_augmented_lagrangian,
@@ -240,65 +247,203 @@ def solve_constrained(
     ) 
     return(result)
 
-# def solve_quad_constrained(
-#         x_init,
-#         c_init,
-#         A_f, b_f, c_f,
-#         run_opt, # 
-#         current_scale=1,
-#         # Equality constraints
-#         lam_init=jnp.zeros(1, dtype=jnp.float32), # No constraints by default
-#         A_eq=None, b_eq=None, c_eq=None,
-#         # Inequality constraints
-#         mu_init=jnp.zeros(1, dtype=jnp.float32), # No constraints by default
-#         A_ineq=None, b_ineq=None, c_ineq=None,
-#         # Parameters (static)
-#         c_growth_rate=1.1,
-#         tol_outer=1e-5,
-#         ftol_inner=1e-5,
-#         xtol_inner=1e-5,
-#         gtol_inner=1e-5,
-#         max_iter_inner=100,
-#         max_iter_outer=15,
-#         scan_mode=False,
-# ):
-#     f_obj = lambda x: eval_quad_scaled(x, A_f, b_f, c_f, current_scale)
-#     if A_eq is None:
-#         h_eq = lambda x:jnp.zeros(1, dtype=jnp.float32)
-#     else:
-#         # First normalize A, B, c by their size (the total constraint number).
-#         h_eq = lambda x: eval_quad_scaled(x, A_eq, b_eq, c_eq, current_scale)
-        
-#     if A_ineq is None:
-#         g_ineq=lambda x:jnp.zeros(1, dtype=jnp.float32)
-#     else:
-#         g_ineq=lambda x: eval_quad_scaled(x, A_ineq, b_ineq, c_ineq, current_scale)
+
+
+'''
+Convert quadratic coefficients to callables.
+reused later for reconstructing l_k as a 
+function of both the current potential and 
+plasma parameters. Also initializes lam and mu,
+the two multipliers.
+'''
+def intialize_quad(
+        A_f, b_f, c_f,
+        A_eq, b_eq, c_eq,
+        A_ineq, b_ineq, c_ineq,
+        x_scale,
+        x_memory=None
+    ):
+    # Defining objective and constraint functions
+    f_obj = lambda x: eval_quad_scaled(x, A_f, b_f, c_f, x_scale)
+    if A_eq is None:
+        h_eq = lambda x:jnp.zeros(1, dtype=jnp.float32)
+        lam_init = jnp.zeros(1, dtype=jnp.float32) # No constraints by default
+    else:
+        # First normalize A, B, c by their size (the total constraint number).
+        h_eq = lambda x: eval_quad_scaled(x, A_eq, b_eq, c_eq, x_scale)
+        lam_init = jnp.zeros_like(c_eq)
+    if A_ineq is None:
+        g_ineq = lambda x:jnp.zeros(1, dtype=jnp.float32)
+        mu_init = jnp.zeros(1, dtype=jnp.float32) # No constraints by default
+    else:
+        g_ineq = lambda x: eval_quad_scaled(x, A_ineq, b_ineq, c_ineq, x_scale)
+        mu_init=jnp.zeros_like(c_ineq)
+    return(f_obj, h_eq, lam_init, g_ineq, mu_init)
+
+'''
+Differentiate the result of a nearly convex QCQP, wrt 
+parameter "y_param" that determines:
+A_f, b_f, c_f, (coeffs of the objective "f". Takes x WITH UNIT)
+A_eq, b_eq, c_eq, (coeffs of the equality constraints. Takes x WITH UNIT)
+A_ineq, b_ineq, c_ineq, (coeffs of the inequality constraints. Takes x WITH UNIT)
+x_scale, (a scaling factor based on the UNIT OF x, so that x_with_unit * x_scale ~ 1.)
+
+Uses Cauchy Implicit Function Theorem.
+
+Inputs:
+- y_to_qcqp_coefs: maps
+    maps y_params 
+    -> 
+    A_f, b_f, c_f,          # shape:         (n,n),         (n), 0
+    A_eq, b_eq, c_eq,       # shape: (n_eq,   n,n), (n_eq,   n), n_eq
+    A_ineq, b_ineq, c_ineq, # shape: (n_ineq, n,n), (n_ineq, n), n_ineq
+    x_scale                 # scalar
+    When there are no constraints present, use None.
     
-# #     print('x_init', x_init.dtype)
-# #     print('c_init', c_init)
-# #     print('lam_init', lam_init.dtype)
-# #     print('mu_init', mu_init.dtype)
-# #     print('c_growth_rate', c_growth_rate)
-#     return(
-#         solve_constrained(
-#             x_init,
-#             c_init,
-#             f_obj,
-#             run_opt,
-#             lam_init=lam_init,
-#             mu_init=mu_init,
-#             h_eq=h_eq,
-#             g_ineq=g_ineq,
-#             c_growth_rate=c_growth_rate,
-#             tol_outer=tol_outer,
-#             ftol_inner=ftol_inner,
-#             xtol_inner=xtol_inner,
-#             gtol_inner=gtol_inner,
-#             max_iter_inner=max_iter_inner,
-#             max_iter_outer=max_iter_outer,
-#             # Uses jax.lax.scan instead of while_loop.
-#             # Enables history and forward diff but disables 
-#             # convergence test.
-#             scan_mode=scan_mode,
-#         )
-#     )
+- f_metric_list: list containing [f1, f2, ...] that maps
+    x_with_unit, y_params,  
+    -> 
+    scalar
+    
+- y_params: Location to evaluate at.
+- init_mode: Initial guess choice. Available options are 'zero' or 'unconstrained'. 
+- x_init: 
+- run_opt: Optimizer choice. Must have the signature (init_params, fun, max_iter, ftol, xtol, gtol)
+- **kwargs: Will be passed directly into solve_constrained.
+
+Returns: (x, list)
+- x_with_unit:    The optimum of the QCQP, WITH UNIT
+- list: A list containing:
+    [
+        (f1, df1/dy),
+        (f2, df2/dy),
+        ...
+    ] 
+'''
+def dfdy_from_qcqp(
+    y_to_qcqp_coefs,
+    f_metric_list,
+    y_params,
+    init_mode='zero',
+    x_init=None,
+    run_opt=run_opt_lbfgs,
+    **kwargs
+):
+    ''' Calculating quadratic coefficients '''
+    (
+        A_f, b_f, c_f,
+        A_eq, b_eq, c_eq,
+        A_ineq, b_ineq, c_ineq, 
+        x_scale
+    ) = y_to_qcqp_coefs(y_params)
+    
+    ''' Defining the objective and constraint callables '''
+    f_obj, h_eq, lam_init, g_ineq, mu_init = intialize_quad(
+        A_f, b_f, c_f,
+        A_eq, b_eq, c_eq,
+        A_ineq, b_ineq, c_ineq,
+        x_scale,
+    )
+    
+    ''' Calculating initial guess '''
+    if init_mode=='zero':
+        x_init_scaled = jnp.zeros_like(b_f, dtype=jnp.float32)
+    elif init_mode=='unconstrained':
+        phi_nescoil, _ = solve_quad_unconstrained(A_f, b_f, c_f)
+        x_init_scaled = phi_nescoil*x_scale
+    elif init_mode=='memory':
+        if x_init is None:
+            raise ValueError('x_init must be provided for memory mode')
+        x_init_scaled = x_init*x_scale
+        
+
+    ''' Solving QUADCOIL '''
+    # A dictionary containing augmented lagrangian info
+    # and the last augmented lagrangian objective function for 
+    # implicit differentiation.
+    solve_results = solve_constrained(
+        x_init=x_init_scaled,
+        f_obj=f_obj,
+        run_opt=run_opt,
+        lam_init=lam_init,
+        mu_init=mu_init,
+        h_eq=h_eq,
+        g_ineq=g_ineq,
+        **kwargs
+    )
+    # quadcoil_f_B = eval_quad_scaled(solve_results['x_k'], A_f_B, b_f_B, c_f_B, x_scale)
+    x_k = solve_results['x_k']
+    x_with_unit = x_k/x_scale
+
+    ''' Recover the l_k in the last iteration for dx_k/dy '''
+    # First, we reproduce the augmented lagrangian objective l_k that 
+    # led to the optimum.
+    c_k = solve_results['c_k']
+    lam_k = solve_results['lam_k']
+    mu_k = solve_results['mu_k']
+    # @jit
+    def l_k(x, y): 
+        (
+            A_f, b_f, c_f,
+            A_eq, b_eq, c_eq,
+            A_ineq, b_ineq, c_ineq, 
+            x_scale
+        ) = y_to_qcqp_coefs(y)
+        f_obj, h_eq, lam_init, g_ineq, mu_init = intialize_quad(
+            A_f, b_f, c_f,
+            A_eq, b_eq, c_eq,
+            A_ineq, b_ineq, c_ineq,
+            x_scale,
+        )
+        gplus = lambda x, mu, c: jnp.max(jnp.array([g_ineq(x), -mu/c]), axis=0)
+        # l_k = lambda x: (
+        #     f_obj(x) 
+        #     + lam_k@h_eq(x) 
+        #     + c_k/2 * (
+        #         jnp.sum(h_eq(x)**2) 
+        #         + jnp.sum(gplus(x, mu_k, c_k)**2)
+        #     )
+        # ) 
+        return(
+            f_obj(x) 
+            + lam_k@h_eq(x) 
+            + c_k/2 * (
+                jnp.sum(h_eq(x)**2) 
+                + jnp.sum(gplus(x, mu_k, c_k)**2)
+            )
+        )
+
+    ''' Apply Cauchy Implicit Function Therorem '''
+    # Now we begin to calculate the Jacobian of the QUADCOIL 
+    # optimum wrt the plasma dofs using Cauchy Implicite Function Theorem
+    # See (IFT) of arXiv:1911.02590
+    # Here, we call the equilibrium properties y and 
+    # the current potential dofs x. The optimum is x*.
+    # df/dy = \nabla_{x_k} f J(x_k, y)                                   + \nabla_{y} f.
+    # df/dy = \nabla_{x_k} f [-H(l_k, x_k)^-1 \nabla_{x_k}\nabla_{y} l_k] + \nabla_{y} f.
+    # J(x_k, y) can be calculated from implicit function theorem.
+    # The x gradient of f (not l_k)
+    out_list = []
+    nabla_x_l_k = grad(l_k, argnums=0)
+    nabla_y_l_k = grad(l_k, argnums=1)
+    # For ca
+    nabla_y_l_k_for_hess = lambda x: nabla_y_l_k(x, y_params)
+    # The vector-inverse-hessian product 
+    # \nabla_{x_k} f [H(l_k, x_k)^-1]
+    hess_l_k = jacrev(nabla_x_l_k)(x_k, y_params)
+    for f_metric_with_unit in f_metric_list:
+        f_metric = lambda x, y: f_metric_with_unit(x/x_scale, y)
+        nabla_x_f = grad(f_metric, argnums=0)(x_k, y_params)
+        nabla_y_f = grad(f_metric, argnums=1)(x_k, y_params)
+        vihp = jnp.linalg.solve(hess_l_k, nabla_x_f)
+        # Now we calculate df/dy using vjp
+        # \nabla_{x_k} f [-H(l_k, x_k)^-1 \nabla_{x_k}\nabla_{y} l_k]
+        _, dfdy1 = jvp(nabla_y_l_k_for_hess, primals=[x_k], tangents=[vihp])
+        # \nabla_{y} f
+        dfdy2 = nabla_y_f
+        out_list.append((f_metric(x_k, y_params), - dfdy1 + dfdy2))
+    
+    return x_with_unit, out_list, solve_results
+
+         
+        
