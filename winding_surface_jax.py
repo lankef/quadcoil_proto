@@ -3,12 +3,13 @@ import jax.numpy as jnp
 # import matplotlib.pyplot as plt
 from jax import jit, lax, vmap
 from jax.lax import while_loop
-from jax.scipy.special import factorial
 from functools import partial
 from interpax import interp1d
 import lineax as lx
 import numpy as np
 import pyvista as pv
+
+from surfacerzfourier_jax import dof_to_rz_op, dof_to_gamma
 
 ''' Plotting '''
 # import pyvista as pv
@@ -192,104 +193,6 @@ def winding_surface_field_Bn_GI(points_plasma, points_coil, normal_plasma, zeta_
 
     return B_GI
 
-def dof_to_rz_op(
-        phi_grid, theta_grid, 
-        nfp, stellsym,
-        dash1_order=0, dash2_order=0,
-        mpol:int=10, ntor:int=10):
-    # maps a [ndof] array
-    # to a [nphi, ntheta, 2(r, z)] array.
-    m_c = jnp.concatenate([
-        jnp.zeros(ntor+1),
-        jnp.repeat(jnp.arange(1, mpol+1), ntor*2+1)
-    ])
-    m_s = jnp.concatenate([
-        jnp.zeros(ntor),
-        jnp.repeat(jnp.arange(1, mpol+1), ntor*2+1)
-    ])
-    n_c = jnp.concatenate([
-        jnp.arange(0, ntor+1),
-        jnp.tile(jnp.arange(-ntor, ntor+1), mpol)
-    ])
-    n_s = jnp.concatenate([
-        jnp.arange(1, ntor+1),
-        jnp.tile(jnp.arange(-ntor, ntor+1), mpol)
-    ])
-    
-    total_neg = (dash1_order + dash2_order)//2
-    derivative_factor_c = (
-        (- n_c[:, None, None] * jnp.pi * 2 * nfp) ** dash1_order 
-        * (m_c[:, None, None] * jnp.pi * 2      ) ** dash2_order
-    ) * (-1) ** total_neg
-    derivative_factor_s = (
-        (- n_s[:, None, None] * jnp.pi * 2 * nfp) ** dash1_order 
-        * (m_s[:, None, None] * jnp.pi * 2      ) ** dash2_order
-    ) * (-1) ** total_neg
-    if (dash1_order + dash2_order)%2 == 0:
-        # 2 arrays of shape [*stack of mn, nphi, ntheta]
-        # consisting of 
-        # [
-        #     cos(m theta - nfp * n * phi)
-        #     ...
-        # ]
-        # [
-        #     sin(m theta - nfp * n * phi)
-        #     ...
-        # ]
-        cmn = derivative_factor_c * jnp.cos(
-            m_c[:, None, None] * jnp.pi * 2 * theta_grid[None, :, :]
-            - n_c[:, None, None] * jnp.pi * 2 * nfp * phi_grid[None, :, :]
-        )
-        smn = derivative_factor_s * jnp.sin(
-            m_s[:, None, None] * jnp.pi * 2 * theta_grid[None, :, :]
-            - n_s[:, None, None] * jnp.pi * 2 * nfp * phi_grid[None, :, :]
-        )
-    else:
-        # For odd-order derivatives, 
-        # consisting of 
-        # [
-        #     sin(m theta - nfp * n * phi)
-        #     ...
-        # ]
-        # [
-        #     cos(m theta - nfp * n * phi)
-        #     ...
-        # ]
-        cmn = -derivative_factor_c * jnp.sin(
-            m_c[:, None, None] * theta_grid[None, :, :] * jnp.pi * 2
-            - n_c[:, None, None] * phi_grid[None, :, :] * jnp.pi * 2 * nfp
-        )
-        smn = derivative_factor_s * jnp.cos(
-            m_s[:, None, None] * theta_grid[None, :, :] * jnp.pi * 2
-            - n_s[:, None, None] * phi_grid[None, :, :] * jnp.pi * 2 * nfp
-        )
-    m_2_n_2 = jnp.concatenate([m_c, m_s]) ** 2 + jnp.concatenate([n_c, n_s]) ** 2
-    if not stellsym:
-        m_2_n_2 = jnp.tile(m_2_n_2, 2)
-    # Stellsym SurfaceRZFourier's dofs consists of 
-    # [rc, zs]
-    # Non-stellsym SurfaceRZFourier's dofs consists of 
-    # [rc, rs, zc, zs]
-    # Here we construct operators that maps 
-    # dofs -> r and z of known, valid, expanded quadpoints.
-    if stellsym:
-        r_operator = cmn
-        z_operator = smn
-    else:
-        r_operator = jnp.concatenate([cmn, smn], axis=0)
-        z_operator = jnp.concatenate([cmn, smn], axis=0)
-    r_operator_padded = jnp.concatenate([r_operator, jnp.zeros_like(z_operator)], axis=0)
-    z_operator_padded = jnp.concatenate([jnp.zeros_like(r_operator), z_operator], axis=0)
-
-    # overall operator
-    # has shape 
-    # [nphi, ntheta, 2(r, z), ndof]
-    # maps a [ndof] array
-    # to a [nphi, ntheta, 2(r, z)] array.
-    A_lstsq = jnp.concatenate([r_operator_padded[:, :, :, None], z_operator_padded[:, :, :, None]], axis=3)
-    A_lstsq = jnp.moveaxis(A_lstsq, 0, -1)
-    return(A_lstsq, m_2_n_2)
-
 def cp_make_mn(mpol, ntor, stellsym):
     """
     Make the list of m and n values. Equivalent to CurrentPotential._make_mn.
@@ -307,92 +210,29 @@ def cp_make_mn(mpol, ntor, stellsym):
         n = jnp.append(n, n)
     return(m, n)
 
-def dof_to_gamma_op(
-    phi_grid, theta_grid, 
-    nfp, stellsym,
-    dash1_order=0, dash2_order=0,
-    mpol:int=10, ntor:int=10):
-    '''
-    Generates an operator with shape [ndof, nphi, ntheta, 3(x, y, z)]
-    that calculates gamma from a surface's dofs.
-    '''
-    dof_to_x = 0
-    dof_to_y = 0
-    for dash1_order_rz in range(dash1_order + 1):
-        # Applying chain rule to 
-        # dof_to_r * jnp.cos(phi_grid * jnp.pi * 2)[:, :, None].
-        dash1_order_trig = dash1_order - dash1_order_rz
-        # Shape: [nphi, ntheta, 2(r, z), ndof]
-        dof_to_rz_dash, _ = dof_to_rz_op(
-            phi_grid=phi_grid, 
-            theta_grid=theta_grid, 
-            nfp=nfp, 
-            stellsym=stellsym,
-            dash1_order=dash1_order_rz,
-            dash2_order=dash2_order,
-            mpol=mpol, 
-            ntor=ntor
-        )
-        # Shape: [ndof, nphi, ntheta]
-        dof_to_r_dash = dof_to_rz_dash[:, :, 0, :]
-        if dash1_order_rz == dash1_order:
-            dof_to_z = dof_to_rz_dash[:, :, 1, :]
-        total_neg = dash1_order_trig//2
-        # Calculating the binomial coefficient (n k)
-        # n: total order + 1
-        # k: dash1_order_rz + 1
-        binomial_coef = factorial(dash1_order) / factorial(dash1_order_rz) / factorial(dash1_order_trig)
-        derivative_factor = binomial_coef * (-1)**total_neg * (jnp.pi * 2)**dash1_order_trig
-        if dash1_order_trig%2 == 0:
-            dof_to_x += derivative_factor * dof_to_r_dash * jnp.cos(phi_grid * jnp.pi * 2)[:, :, None]
-            dof_to_y += derivative_factor * dof_to_r_dash * jnp.sin(phi_grid * jnp.pi * 2)[:, :, None]
-        else:
-            dof_to_x += -derivative_factor * dof_to_r_dash * jnp.sin(phi_grid * jnp.pi * 2)[:, :, None]
-            dof_to_y += derivative_factor * dof_to_r_dash * jnp.cos(phi_grid * jnp.pi * 2)[:, :, None]
-    dof_to_gamma = jnp.concatenate([dof_to_x[:, :, None, :], dof_to_y[:, :, None, :], dof_to_z[:, :, None, :]], axis=2)
-    return(dof_to_gamma)
-
-def dof_to_gamma(
-    dofs, phi_grid, theta_grid, 
-    nfp, stellsym,
-    dash1_order=0, dash2_order=0,
-    mpol:int=10, ntor:int=10):
-    return(
-        dof_to_gamma_op(
-            phi_grid=phi_grid, 
-            theta_grid=theta_grid, 
-            nfp=nfp, 
-            stellsym=stellsym,
-            dash1_order=dash1_order, 
-            dash2_order=dash2_order,
-            mpol=mpol, 
-            ntor=ntor
-        ) @ dofs
-    )
-
-def dof_to_normal_op(
-    phi_grid, theta_grid, 
-    nfp, stellsym,
-    mpol:int=10, ntor:int=10):
-    A_gammadash1 = dof_to_gamma_op(
-        phi_grid=phi_grid, 
-        theta_grid=theta_grid, 
-        nfp=nfp, 
-        stellsym=stellsym,
-        dash1_order=1, 
-        mpol=mpol, 
-        ntor=ntor
-    )
-    A_gammadash2 = dof_to_gamma_op(
-        phi_grid=phi_grid, 
-        theta_grid=theta_grid, 
-        nfp=nfp, 
-        stellsym=stellsym,
-        dash2_order=1, 
-        mpol=mpol, 
-        ntor=ntor
-    )
-    return(jnp.cross(A_gammadash1[:, :, :, :, None], A_gammadash2[:, :, :, None, :], axis=-3))
+# def dof_to_normal_op(
+#     phi_grid, theta_grid, 
+#     nfp, stellsym,
+#     mpol:int=10, ntor:int=10):
+#     A_gammadash1 = dof_to_gamma_op(
+#         phi_grid=phi_grid, 
+#         theta_grid=theta_grid, 
+#         nfp=nfp, 
+#         stellsym=stellsym,
+#         dash1_order=1, 
+#         mpol=mpol, 
+#         ntor=ntor
+#     )
+#     A_gammadash2 = dof_to_gamma_op(
+#         phi_grid=phi_grid, 
+#         theta_grid=theta_grid, 
+#         nfp=nfp, 
+#         stellsym=stellsym,
+#         dash2_order=1, 
+#         mpol=mpol, 
+#         ntor=ntor
+#     )
+#     return(jnp.cross(A_gammadash1[:, :, :, :, None], A_gammadash2[:, :, :, None, :], axis=-3))
 
 @partial(jit, static_argnames=['nfp', 'stellsym', 'mpol', 'ntor', 'lam_tikhnov', 'lam_gaussian',])
 def fit_surfacerzfourier(
@@ -470,91 +310,6 @@ remove_dup_vmap = vmap(remove_dup)
 # default values
 tol_expand_default = 0.9
 lam_tikhnov_default = 0.2
-
-@partial(jit, static_argnames=[
-    'nfp', 'stellsym', 
-    'mpol', 'ntor', 
-    'tol_expand', 'lam_tikhnov'
-])
-def gen_winding_surface_atan_legacy(
-        gamma_plasma, d_expand, 
-        nfp, stellsym,
-        unitnormal=None,
-        mpol=10, ntor=10,
-        tol_expand=tol_expand_default,
-        lam_tikhnov=lam_tikhnov_default,
-        ):
-    # A simple winding surface generator with less intermediate quantities.
-    # only works for large offset distances, where center (from the unweighted
-    # avg of the quadrature points' rz coordinate) of the offset surface's rz cross sections
-    # lay within the cross sections. 
-
-    theta = 2 * jnp.pi / nfp
-    rotation_matrix = gen_rot_matrix(theta)
-    rotation_matrix_neg = gen_rot_matrix(-theta)
-
-    # Approximately calculating the normal vector. Alternatively, the normal
-    # can be provided, but this will make the Jacobian matrix larger and lead to longer compile time.
-    if unitnormal is None:
-        xyz_rotated = gamma_plasma[0, :, :] @ rotation_matrix.T
-        gamma_plasma_phi_rolled = jnp.append(gamma_plasma[1:, :, :], xyz_rotated[None, :, :], axis=0)
-        delta_phi = gamma_plasma_phi_rolled - gamma_plasma
-        delta_theta = jnp.roll(gamma_plasma, 1, axis=1) - gamma_plasma
-        normal_approx = jnp.cross(delta_theta, delta_phi)
-        unitnormal = normal_approx / jnp.linalg.norm(normal_approx, axis=-1)[:,:,None]
-    
-    gamma_plasma_expand = gamma_plasma + unitnormal * d_expand
-
-    
-    if stellsym:
-        next_fp = gamma_plasma[:gamma_plasma.shape[0]//2] @ rotation_matrix.T
-        last_fp = gamma_plasma[gamma_plasma.shape[0]//2:] @ rotation_matrix_neg.T
-    else:
-        next_fp = gamma_plasma @ rotation_matrix.T
-        last_fp = gamma_plasma @ rotation_matrix_neg.T
-        # Copy the gamma from the next and last fp.
-    gamma_plasma_dist = jnp.concatenate([last_fp, gamma_plasma, next_fp], axis=0)
-
-    # The original uniform offset. Has self-intersections.
-    # Tested to be differentiable.
-    r_expand = jnp.sqrt(gamma_plasma_expand[:, :, 1]**2 + gamma_plasma_expand[:, :, 0]**2)
-    phi_expand = jnp.arctan2(gamma_plasma_expand[:, :, 1], gamma_plasma_expand[:, :, 0]) / jnp.pi / 2 
-    z_expand = gamma_plasma_expand[:, :, 2]
-
-    r_center = jnp.average(r_expand, axis=-1)
-    z_center = jnp.average(z_expand, axis=-1)
-
-    min_dist_expand = jnp.min((
-        jnp.linalg.norm(gamma_plasma_expand[:, :, None, None, :] - gamma_plasma_dist[None, None, :, :, :], axis=-1)
-    ), axis=(2, 3))
-
-    weight_remove_invalid = jnp.where(
-        min_dist_expand[:, :] < tol_expand * d_expand, 
-        0., 
-        1.
-    )
-
-    # print('gamma_plasma_expand', gamma_plasma_expand.shape)
-    # print('z_expand', z_expand.shape)
-    # print('z_center', z_center.shape)
-    # print('r_expand', r_expand.shape)
-    # print('r_center', r_center.shape)
-    theta_atan = jnp.arctan2(z_expand-z_center[:, None], r_expand-r_center[:, None])/jnp.pi/2
-    dofs_expand = fit_surfacerzfourier(
-        mpol=mpol,
-        ntor=ntor,
-        theta_grid=theta_atan, # theta_interp
-        phi_grid=phi_expand,
-        r_fit=r_expand,
-        z_fit=z_expand,
-        nfp=nfp, stellsym=stellsym,
-        lam_tikhnov=lam_tikhnov, lam_gaussian=0.,
-        custom_weight=weight_remove_invalid,
-    )
-
-    return(dofs_expand)
-
-
 
 @partial(jit, static_argnames=[
     'nfp', 'stellsym', 
@@ -859,3 +614,10 @@ def gen_winding_surface_arclen(
     )
 
     return(dofs_expand)
+
+
+def cp_ndof_from_mpol_ntor(mpol, ntor, stellsym):
+    ndof = 2 * mpol * ntor + mpol + ntor
+    if not stellsym:
+        ndof *= 2
+    return ndof
