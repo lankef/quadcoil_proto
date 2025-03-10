@@ -48,6 +48,9 @@ class SurfaceRZFourierJAX:
     gammadash1dash2 = lambda self: self.gammadash(1, 1)
     gammadash2dash2 = lambda self: self.gammadash(0, 2)
     normal = lambda self: jnp.cross(self.gammadash1(), self.gammadash2(), axis=-1)
+    def unitnormal(self):
+        normal = self.normal()
+        return(normal/jnp.linalg.norm(normal, axis=-1)[:, :, None])
     
     ''' JAX prereqs '''
     
