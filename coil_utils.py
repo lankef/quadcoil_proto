@@ -60,8 +60,7 @@ def coil_zeta_theta_from_cp(
     contours = contours + d/2
     cdata = plt.contour(zeta_3,theta,np.transpose(data_3),contours,colors='k')
     plt.close()
-
-    numCoilsFound = len(cdata.collections)
+    numCoilsFound = len(cdata.get_paths())
     if numCoilsFound != 2*coilsPerHalfPeriod:
         print("WARNING!!! The expected number of coils was not the number found.")
 
@@ -69,7 +68,7 @@ def coil_zeta_theta_from_cp(
     contour_theta=[]
     numCoils = 0
     for j in range(numCoilsFound):
-        p = cdata.collections[j].get_paths()[0]
+        p = cdata.get_paths()[j]
         v = p.vertices
         # Make sure the contours have increasing theta:
         if v[1,1]<v[0,1]:
